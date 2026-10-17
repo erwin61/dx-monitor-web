@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<script>
+/* Start-Weiche: Hat sich der Monitor für Spender selbst aktualisiert, läuft die neuere gespeicherte Fassung.
+   Mit #reset am Ende der Adresse wird sie verworfen und die Datei selbst läuft wieder. */
+window.DXM_V = '1.1.1';
+window.__dxmRep = 0;
+(function(){
+  try {
+    if (location.hash === '#reset'){ localStorage.removeItem('dxm.app'); localStorage.setItem('dxm.noauto', '1'); history.replaceState(null, '', location.pathname + location.search); return; }
+    var raw = localStorage.getItem('dxm.app'); if (!raw) return;
+    var o = JSON.parse(raw), a = String(o.v).split('.').map(Number), b = window.DXM_V.split('.').map(Number), newer = false;
+    for (var i = 0; i < 4; i++){ var d = (a[i] || 0) - (b[i] || 0); if (d){ newer = d > 0; break; } }
+    if (!newer || typeof o.html !== 'string') return;
+    window.__dxmRep = 1; /* das Programm dieser Datei startet nicht, die gespeicherte Fassung ersetzt die Seite */
+    setTimeout(function(){ try { document.open(); document.write(o.html); document.close(); } catch (e) { location.hash = '#reset'; location.reload(); } }, 0);
+  } catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121815">
+<title>OE3KAI DX Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* Layout: Kopfzeile mit Status, Filterfeld, darunter die Spotliste als Zeilen (Handy: zweizeilige Karten). */
+:root{
+  --bg:#eceee9; --surface:#f9faf7; --ink:#1b231e; --muted:#586259; --line:#d3d8cf;
+  --accent:#a64b08; --accent-ink:#ffffff; --chip:#e3e7df; --fresh:#f6dfb6; --log-ok:#1f7a35; --log-part:#1f67b8; --log-new:#c2271d;
+  --ok:#2f7a3e; --warn:#a9650a; --bad:#b3261e;
+  --font-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --font-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111713; --surface:#19211c; --ink:#e5eae2; --muted:#93a095; --line:#2a352e;
+    --accent:#f0a43a; --accent-ink:#1a1206; --chip:#232d27; --fresh:#4a3a16; --log-ok:#5fd07a; --log-part:#6aaaf5; --log-new:#f2766c;
+    --ok:#6cc27d; --warn:#e0a24a; --bad:#f08a82;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111713; --surface:#19211c; --ink:#e5eae2; --muted:#93a095; --line:#2a352e;
+  --accent:#f0a43a; --accent-ink:#1a1206; --chip:#232d27; --fresh:#4a3a16; --log-ok:#5fd07a; --log-part:#6aaaf5; --log-new:#f2766c;
+  --ok:#6cc27d; --warn:#e0a24a; --bad:#f08a82;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink); font:16px/1.45 var(--font-body);
+  padding-inline:16px; padding-block:14px 40px;
+}
+.wrap{max-width:1100px; margin-inline:auto; display:flex; flex-direction:column; gap:14px}
+header{display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:8px 16px}
+.brand{display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 14px; min-width:0}
+h1{font:700 3rem/1 var(--font-data); letter-spacing:.04em; margin:0; color:var(--accent)}
+.sub{margin:0; font:600 1.1rem/1 var(--font-display); letter-spacing:.14em; text-transform:uppercase; color:var(--muted)}
+.tools{display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; min-width:0}
+.btn[aria-expanded="true"]{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.status{display:flex; align-items:center; gap:8px; font:500 .85rem var(--font-data); color:var(--muted); min-width:0}
+.dot{width:.6rem; height:.6rem; border-radius:50%; background:var(--muted); flex:none}
+.dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.busy{background:var(--warn)}
+.banner{border:1px solid var(--warn); background:var(--surface); padding:.6rem .8rem; border-radius:6px; font-size:.92rem}
+.banner b{color:var(--warn)}
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:12px}
+.group{display:flex; flex-wrap:wrap; align-items:center; gap:6px 6px; min-width:0}
+.group > label.cap, .cap{font:600 .72rem var(--font-body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-right:6px; min-width:4.2rem}
+.chip{
+  font:500 .85rem var(--font-data); background:var(--chip); color:var(--ink); border:1px solid transparent;
+  padding:.28rem .6rem; border-radius:999px; cursor:pointer; line-height:1.2;
+}
+.chip small{color:var(--muted); font-size:.72rem; margin-left:.25rem}
+.chip[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.chip[aria-pressed="true"] small{color:inherit; opacity:.8}
+.chip:focus-visible,.btn:focus-visible,select:focus-visible,input:focus-visible,.spot:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.fields{display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end}
+.field{display:flex; flex-direction:column; gap:3px; min-width:0}
+.field .cap{margin:0}
+select,input[type=text],input[type=search]{
+  font:500 .95rem var(--font-data); background:var(--bg); color:var(--ink); border:1px solid var(--line);
+  border-radius:6px; padding:.4rem .55rem; min-width:0; max-width:100%;
+}
+input[type=search]{width:11rem} input.loc{width:6rem; text-transform:uppercase}
+.btn{font:600 .88rem var(--font-body); background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:.45rem .8rem; cursor:pointer}
+.btn.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.check{display:flex; align-items:center; gap:6px; font-size:.9rem; padding-bottom:.4rem}
+.count{font:500 .85rem var(--font-data); color:var(--muted)}
+.list{background:var(--surface); border:1px solid var(--line); border-radius:8px; overflow:hidden}
+.head,.spot{
+  display:grid; gap:.25rem .9rem; align-items:center; padding:.65rem .9rem;
+  grid-template-columns:4.8rem 6rem minmax(0,1.15fr) minmax(0,1.15fr) 6.2rem minmax(0,1.1fr) 7.6rem;
+  grid-template-areas:"t f c e m n d" "x x x x x x x";
+}
+.head{font:600 .72rem var(--font-body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); background:var(--bg)}
+.head > span:nth-child(1){grid-area:t} .head > span:nth-child(2){grid-area:f} .head > span:nth-child(3){grid-area:c}
+.head > span:nth-child(4){grid-area:e} .head > span:nth-child(5){grid-area:m} .head > span:nth-child(6){grid-area:n} .head > span:nth-child(7){grid-area:d}
+.spot{border-bottom:1px solid var(--line); cursor:pointer}
+.spot:last-child{border-bottom:0}
+.spot:hover{background:color-mix(in srgb, var(--chip) 55%, transparent)}
+.spot.fresh{animation:fresh 4s ease-out}
+@keyframes fresh{from{background:var(--fresh)} to{background:transparent}}
+.t{grid-area:t; font:500 .9rem var(--font-data)} .t small{display:block; color:var(--muted); font-size:.72rem}
+.f{grid-area:f; font:600 1.05rem var(--font-data); font-variant-numeric:tabular-nums}
+.c,.e{display:flex; flex-direction:column; min-width:0}
+.c{grid-area:c} .e{grid-area:e}
+.c b,.e b{font:600 1.15rem var(--font-data); letter-spacing:.01em; overflow-wrap:anywhere}
+.c b{align-self:flex-start; border:2px var(--lgs,solid) var(--lgc,transparent); border-radius:6px; padding:0 .3rem; margin:-2px 0 0 calc(-.3rem - 2px)}
+.nb{display:inline-block; margin-left:.4rem; padding:0 .4rem; border-radius:999px; font-size:.7rem; font-weight:700; letter-spacing:.02em; line-height:1.5; vertical-align:baseline}
+.nb-c{background:var(--accent); color:var(--accent-ink)}
+.nb-b{border:1px solid var(--accent); color:var(--accent)}
+.lg-ok{--lgc:var(--log-ok)} .lg-part{--lgc:var(--log-part); --lgs:dashed} .lg-new{--lgc:var(--log-new)}
+.legend{display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; font-size:.82rem; color:var(--muted)}
+.lg{border:2px var(--lgs,solid) var(--lgc,transparent); border-radius:6px; padding:.05rem .45rem; color:var(--ink)}
+.logset{display:flex; flex-direction:column; gap:10px; border-top:1px solid var(--line); padding-top:12px}
+.logset .field{align-items:stretch} .logset input[type=text]{width:100%}
+.lbl{display:none}
+.c small,.e small{color:var(--muted); font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.m{grid-area:m; display:flex; flex-wrap:wrap; gap:4px}
+.pill{font:600 .75rem var(--font-data); padding:.12rem .45rem; border-radius:4px; background:var(--chip); color:var(--ink)}
+.pill.band{background:hsl(var(--h,220) 52% 40%); color:#fff}
+.n{grid-area:n; font-size:.88rem; color:var(--muted); min-width:0; overflow-wrap:anywhere}
+.n em{font-style:normal; color:var(--ink)}
+.d{grid-area:d; font:500 .82rem var(--font-data); color:var(--muted); text-align:right}
+.x{grid-area:x; border-top:1px dashed var(--line); margin-top:.4rem; padding-top:.6rem; display:flex; flex-wrap:wrap; gap:8px 20px; font-size:.9rem; cursor:default}
+.xb{display:flex; flex-direction:column; gap:6px; min-width:0; flex:1 1 15rem}
+.xb h4{margin:0; font:600 .72rem var(--font-body); letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+.c,.e{cursor:pointer}
+.c:hover b,.e:hover b{text-decoration:underline; text-decoration-color:var(--accent); text-underline-offset:3px}
+.e:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+.map{width:100%; height:230px; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--chip); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:.85rem}
+.map.leaflet-container{display:block; font-family:var(--font-body)}
+.mapnote{margin:0; font-size:.8rem; color:var(--muted)}
+.linkbtn{background:none; border:0; padding:0; color:var(--accent); font:inherit; font-weight:600; text-decoration:underline; cursor:pointer}
+.map .leaflet-tooltip{background:var(--surface); color:var(--ink); border:1px solid var(--line); box-shadow:none; font:600 .8rem var(--font-data)}
+.map .leaflet-tooltip-top:before{border-top-color:var(--line)}
+.map .leaflet-control-attribution{background:color-mix(in srgb, var(--surface) 80%, transparent); color:var(--muted); font-size:.68rem}
+.map .leaflet-control-attribution a{color:var(--muted)}
+.map .leaflet-bar a{background:var(--surface); color:var(--ink); border-bottom-color:var(--line)}
+.map .leaflet-bar{border:1px solid var(--line); box-shadow:none}
+.x dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:2px 10px; min-width:0}
+.x dt{color:var(--muted)} .x dd{margin:0; min-width:0; overflow-wrap:anywhere}
+.x .acts{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.x a{color:var(--accent); font-weight:600}
+.colorrows{display:flex; flex-direction:column; gap:12px}
+.colorrows .cap{min-width:6.5rem}
+.sw{width:1.9rem; height:1.9rem; border-radius:50%; border:2px solid var(--line); cursor:pointer; padding:0; background:var(--c, var(--bg))}
+.sw.auto{background:linear-gradient(135deg,#f9faf7 50%,#19211c 50%)}
+.sw[aria-pressed="true"]{outline:2px solid var(--accent); outline-offset:2px}
+.sw:focus-visible,input[type=color]:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+input[type=color]{width:2.4rem; height:1.9rem; padding:0; border:1px solid var(--line); border-radius:6px; background:none; cursor:pointer}
+.empty{padding:2rem 1rem; text-align:center; color:var(--muted)}
+.toast{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(18px + env(safe-area-inset-bottom,0px)); background:var(--ink); color:var(--bg); padding:.5rem .9rem; border-radius:6px; font:600 .88rem var(--font-body); opacity:0; pointer-events:none; transition:opacity .2s}
+.toast.on{opacity:1}
+footer{color:var(--muted); font-size:.82rem; display:flex; flex-direction:column; gap:10px}
+footer p{margin:0}
+.coffee{margin:0; font-size:.95rem; line-height:1.9; color:var(--ink); padding:.55rem .9rem; border:1px solid var(--accent); border-radius:8px; background:color-mix(in srgb, var(--accent) 16%, var(--surface))}
+.coffee a{display:inline-block; background:var(--accent); color:var(--accent-ink); font-weight:600; text-decoration:none; padding:0 .7rem; border-radius:999px; line-height:1.6}
+.coffee a:hover{filter:brightness(1.1)}
+.upd{margin:0; font-size:.95rem; padding:.5rem .9rem; border:1px solid var(--accent); border-radius:8px; background:var(--surface); display:flex; gap:.6rem; align-items:center; flex-wrap:wrap}
+.upd a{color:var(--accent); font-weight:600}
+.upd .btn{margin-left:auto}
+.coffee a:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+footer a{color:var(--accent)}
+@media (max-width:760px){
+  h1{font-size:2.4rem}
+  .head{display:none}
+  .spot{grid-template-columns:minmax(0,1fr) auto; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-areas:"c f" "e t" "m m" "n n" "d d" "x x"; padding:.75rem .8rem}
+  .lbl{display:inline; font:600 .68rem var(--font-body); letter-spacing:.09em; color:var(--muted); margin-right:.4rem}
+  .spot > .e b{font-size:1.05rem}
+  .f{text-align:right}
+  .t{text-align:right; font-size:.82rem} .t small{display:inline; margin-left:.4rem}
+  .d{text-align:left}
+  input[type=search]{width:100%} .field.grow{flex:1 1 100%}
+  .cap{min-width:0}
+}
+@media (prefers-reduced-motion: reduce){ .spot.fresh{animation:none} .toast{transition:none} }
+</style>
+</head>
+<body>
+<script>
+/* Zugangsschutz der Web-Fassung: Ehrenregel, keine echte Sicherheit. Die Prüfsumme steht in GATE_HASH, das Passwort selbst steht nirgends. */
+(function(){
+  var GATE_HASH = 'e6e37105548611ad997cc23716c46a14564d05131a34b36fda4d4c7b86bda294';
+  if (!GATE_HASH) return;
+  function sha256(str){
+    const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const bytes = Array.from(new TextEncoder().encode(str)), bl = bytes.length * 8;
+    bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+    for (let i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (bl >>> (i * 8)) & 255);
+    const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19], w = new Array(64);
+    const rr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let o = 0; o < bytes.length; o += 64){
+      for (let i = 0; i < 16; i++) w[i] = (bytes[o + 4 * i] << 24) | (bytes[o + 4 * i + 1] << 16) | (bytes[o + 4 * i + 2] << 8) | bytes[o + 4 * i + 3];
+      for (let i = 16; i < 64; i++){ const s0 = rr(w[i - 15], 7) ^ rr(w[i - 15], 18) ^ (w[i - 15] >>> 3), s1 = rr(w[i - 2], 17) ^ rr(w[i - 2], 19) ^ (w[i - 2] >>> 10); w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0; }
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let i = 0; i < 64; i++){
+        const t1 = (h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0, t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0; H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+  }
+  var norm = function(p){ return String(p || '').trim(); };
+  var key = 'dxm.gate';
+  try { if (localStorage.getItem(key) === GATE_HASH) return; } catch (e) {}
+  var st = document.createElement('style');
+  st.textContent = '#gate{position:fixed;inset:0;z-index:99999;background:#121815;color:#e8efe9;display:flex;align-items:center;justify-content:center;padding:16px;font:16px/1.4 system-ui,sans-serif}#gate form{width:100%;max-width:340px;background:#1a231e;border:1px solid #33433a;border-radius:12px;padding:20px}#gate h1{margin:0 0 4px;font-size:22px;color:#f2a33a}#gate p{margin:0 0 14px;color:#a9b8ae;font-size:14px}#gate input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;border-radius:8px;border:1px solid #33433a;background:#121815;color:#e8efe9}#gate button{margin-top:12px;width:100%;padding:12px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:#f2a33a;color:#1b1b1b}#gate .e{color:#ff8a7a;min-height:1.3em;margin-top:8px;font-size:14px}';
+  document.head.appendChild(st);
+  var g = document.createElement('div'); g.id = 'gate';
+  g.innerHTML = '<form><h1>OE3KAI DX Monitor</h1><p>Bitte das Passwort eingeben, das du von OE3KAI bekommen hast.</p><input type="password" id="gpw" autocomplete="current-password" placeholder="Passwort"><button type="submit">Weiter</button><div class="e" id="gerr" role="status"></div></form>';
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(g); var i = document.getElementById('gpw'); if (i) i.focus(); });
+  if (document.body) document.body.appendChild(g);
+  g.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var h = sha256('OE3KAI-WEB|' + norm(document.getElementById('gpw').value));
+    if (h === GATE_HASH){ try { localStorage.setItem(key, h); } catch (e) {} g.remove(); }
+    else document.getElementById('gerr').textContent = 'Das Passwort stimmt nicht.';
+  });
+})();
+</script>
+
+<div class="wrap">
+  <p class="coffee">Gefällt dir der DX Monitor? <a href="https://paypal.me/ErwinKaineder" target="_blank" rel="noopener">Spendier mir einen Kaffee</a>, dann läuft das nächste Update mit Koffein. 73 de OE3KAI</p>
+  <p class="upd" id="upd" role="status" hidden></p>
+  <header>
+    <div class="brand">
+      <h1>OE3KAI</h1>
+      <p class="sub">DX Monitor <span id="appver"></span></p>
+    </div>
+    <div class="tools">
+      <div class="status" role="status" aria-live="polite"><i class="dot busy" id="dot"></i><span id="statusText">lädt…</span></div>
+      <button type="button" class="btn" id="settingsBtn" aria-expanded="false" aria-controls="settings">Einstellungen</button>
+    </div>
+  </header>
+
+  <section id="settings" class="panel" aria-label="Einstellungen" hidden>
+    <div id="colorRows" class="colorrows"></div>
+    <div class="group"><button type="button" class="btn" id="colorReset">Farben zurücksetzen</button></div>
+    <div class="logset">
+      <span class="cap" style="margin:0">Logbuch (ADIF)</span>
+      <div class="group">
+        <button type="button" class="btn" id="qrzSync">QRZ aktualisieren</button>
+        <button type="button" class="btn" id="adifBtn">ADIF-Datei laden</button>
+        <input type="file" id="adifFile" accept=".adi,.adif,.txt" hidden>
+        <button type="button" class="btn" id="logClear">Logbuch entfernen</button>
+      </div>
+      <div class="field"><label class="cap" for="logurl" style="margin:0">Automatisch laden von Adresse (alle 10 min)</label>
+        <input id="logurl" type="text" placeholder="qrz.adi" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <p class="count" id="logStatus" style="margin:0"></p>
+    </div>
+    <div class="logset">
+      <span class="cap" style="margin:0">Update-Hinweise für Spender</span>
+      <div class="field"><label class="cap" for="donorCall" style="margin:0">Mein Rufzeichen (wie bei der Spende angegeben)</label>
+        <input id="donorCall" type="text" placeholder="OE1ABC" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+      <div class="field"><label class="cap" for="donor" style="margin:0">Spender-Code</label>
+        <input id="donor" type="text" placeholder="KAFFEE-XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+      <div class="group"><button type="button" class="btn" id="updCheck">Jetzt nach Update suchen</button></div>
+      <p class="count" id="updStatus" style="margin:0"></p>
+    </div>
+    <p class="count" id="saveNote" style="margin:0"></p>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="panel" aria-label="Filter">
+    <div class="group"><span class="cap">Band</span><span id="bandChips" class="group"></span></div>
+    <div class="group"><span class="cap">Betriebsart</span><span id="modeChips" class="group"></span></div>
+    <div class="group"><span class="cap">Quelle</span><span id="srcChips" class="group"></span></div>
+    <div class="fields">
+      <div class="field"><label class="cap" for="cont">Kontinent</label>
+        <select id="cont">
+          <option value="">Alle</option><option value="EU">Europa</option><option value="!EU">Außer Europa</option><option value="NA">Nordamerika</option>
+          <option value="SA">Südamerika</option><option value="AS">Asien</option><option value="AF">Afrika</option>
+          <option value="OC">Ozeanien</option><option value="AN">Antarktis</option>
+        </select></div>
+      <div class="field"><label class="cap" for="heard">Gehört in</label>
+        <select id="heard">
+          <option value="">Überall</option><option value="AT">Österreich</option><option value="DACH">Österreich, Deutschland, Schweiz</option><option value="EU">Europa</option>
+        </select></div>
+      <div class="field"><label class="cap" for="age">Alter</label>
+        <select id="age"><option value="1">1 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option></select></div>
+      <div class="field grow"><label class="cap" for="q">Suche</label><input id="q" type="search" placeholder="Rufzeichen oder Kommentar" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+      <div class="field"><label class="cap" for="home">Mein Locator</label><input id="home" class="loc" type="text" maxlength="6" value="JN87" autocomplete="off" spellcheck="false"></div>
+      <label class="check"><input type="checkbox" id="auto" checked> Alle 5 s aktualisieren</label>
+      <button class="btn primary" id="reload" type="button">Jetzt laden</button>
+      <div class="field" id="newcWrap" hidden><label class="cap" for="newc">Länder (Logbuch)</label>
+        <select id="newc"><option value="">Alle</option><option value="c">Nur neue Länder</option><option value="cb">Neue Länder und neue Bänder</option></select></div>
+      <label class="check" id="hideWorkedWrap" hidden><input type="checkbox" id="hideWorked"> Gearbeitete ausblenden</label>
+      <button class="btn" id="reset" type="button">Filter löschen</button>
+    </div>
+  </section>
+
+  <div class="count" id="count"></div>
+  <div class="legend" id="legend" hidden><span>Logbuch:</span><span class="lg lg-ok">gearbeitet</span><span class="lg lg-part">Station bekannt, anderes Band oder Mode</span><span class="lg lg-new">noch nicht im Log</span></div>
+
+  <section class="list" aria-label="Spots">
+    <div class="head" aria-hidden="true"><span>UTC</span><span>kHz</span><span>DX</span><span>DE</span><span>Band / Mode</span><span>Kommentar</span><span>Entf. / Richtung</span></div>
+    <div id="rows"></div>
+  </section>
+
+  <footer>
+    <p>Daten von <a href="https://spothole.app" target="_blank" rel="noopener">Spothole</a>, das DX-Cluster, Reverse Beacon Network, POTA, SOTA und weitere Quellen zusammenführt. Zeiten in UTC. Antippen von DX oder DE zeigt Details zur Station.</p>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  if (window.__dxmRep === 1) return; /* wird gerade durch die gespeicherte Fassung ersetzt */
+  const API = 'https://spothole.app/api/v1/spots';
+  const BAND_HUE = {'160m':20,'80m':38,'60m':58,'40m':90,'30m':130,'20m':165,'17m':192,'15m':215,'12m':240,'10m':265,'6m':290,'4m':310,'2m':335,'70cm':355};
+  const BAND_ORDER = Object.keys(BAND_HUE);
+  const MODE_TYPES = [['CW','CW'],['PHONE','Phone'],['DATA','Digital']];
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  /* Speicher: localStorage, zusätzlich window.name als Rückfall (übersteht Neuladen im selben Tab). */
+  const store = (() => {
+    let ls = null;
+    try { ls = window.localStorage; ls.setItem('dxm.t', '1'); ls.removeItem('dxm.t'); } catch { ls = null; }
+    let mem = {};
+    try { const w = JSON.parse(window.name || '{}'); if (w && typeof w.dxm === 'object' && w.dxm) mem = w.dxm; } catch {}
+    return {
+      persistent: !!ls,
+      get(k, d){
+        try { if (ls){ const v = ls.getItem('dxm.' + k); if (v != null) return JSON.parse(v); } } catch {}
+        return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : d;
+      },
+      set(k, v){
+        mem[k] = v;
+        try { window.name = JSON.stringify({ dxm: mem }); } catch {}
+        try { if (ls) ls.setItem('dxm.' + k, JSON.stringify(v)); } catch {}
+      }
+    };
+  })();
+
+  const state = {
+    bands: new Set(store.get('bands', [])), modes: new Set(store.get('modes', [])), sources: new Set(store.get('sources', [])),
+    cont: store.get('cont', ''), heard: String(store.get('heard', '')), age: [1, 5, 10, 15, 30, 60].includes(Number(store.get('age', 60))) ? Number(store.get('age', 60)) : 60, q: String(store.get('q', '')), home: store.get('home', 'JN87'), auto: store.get('auto', true), newc: String(store.get('newc', ''))
+  };
+  let logIdx = null, logErr = '';
+  let spots = [], demo = false, err = '', lastOk = null, seen = new Set(), firstLoad = true, loading = false;
+  const open = new Map(); // id -> Set('dx' | 'de')
+
+  /* ---------- Geometrie ---------- */
+  function gridToLL(g){
+    g = (g || '').trim().toUpperCase();
+    if (!/^[A-R]{2}\d{2}([A-X]{2})?$/.test(g)) return null;
+    let lon = (g.charCodeAt(0) - 65) * 20 - 180 + Number(g[2]) * 2;
+    let lat = (g.charCodeAt(1) - 65) * 10 - 90 + Number(g[3]);
+    if (g.length === 6){ lon += (g.charCodeAt(4) - 65) / 12 + 1 / 24; lat += (g.charCodeAt(5) - 65) / 24 + 1 / 48; }
+    else { lon += 1; lat += 0.5; }
+    return [lat, lon];
+  }
+  function distBrg(a, b){
+    const R = 6371, r = Math.PI / 180;
+    const dLa = (b[0] - a[0]) * r, dLo = (b[1] - a[1]) * r;
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLo / 2) ** 2;
+    const d = 2 * R * Math.asin(Math.sqrt(h));
+    const y = Math.sin(dLo) * Math.cos(b[0] * r);
+    const x = Math.cos(a[0] * r) * Math.sin(b[0] * r) - Math.sin(a[0] * r) * Math.cos(b[0] * r) * Math.cos(dLo);
+    return [d, (Math.atan2(y, x) / r + 360) % 360];
+  }
+
+  const WIND = ['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const wind = (deg) => WIND[Math.round(deg / 22.5) % 16];
+  function beamText(a, b){
+    const r = distBrg(a, b), sp = r[1], lp = (sp + 180) % 360, lpKm = Math.max(0, 2 * Math.PI * 6371 - r[0]);
+    return Math.round(sp) + '° ' + wind(sp) + ' Kurzweg · ' + Math.round(lp) + '° ' + wind(lp) + ' Langweg (' + Math.round(lpKm).toLocaleString('de-AT') + ' km)';
+  }
+
+  /* ---------- Daten ---------- */
+  function norm(s){
+    return {
+      id: s.id || (String(s.dx_call) + s.freq + s.time), call: s.dx_call || '?', freq: Number(s.freq) || 0,
+      band: s.band || '', mode: s.mode || '', mt: s.mode_type || '', t: (Number(s.time) || 0) * 1000, src: s.source || '',
+      de: s.de_call || '', comment: s.comment || '', flag: s.dx_flag || '', deFlag: s.de_flag || '', country: s.dx_country || '', dxcc: s.dx_dxcc_id ?? s.dx_dxcc, cont: s.dx_continent || '',
+      name: s.dx_name || '', qth: s.dx_qth || '', grid: s.dx_grid || '', lat: s.dx_latitude, lon: s.dx_longitude,
+      cq: s.dx_cq_zone, itu: s.dx_itu_zone, deCountry: s.de_country || '', deCont: s.de_continent || '', deDxcc: s.de_dxcc_id, deGrid: s.de_grid || '', deLat: s.de_latitude, deLon: s.de_longitude, locSrc: s.dx_location_source || '', locGood: s.dx_location_good, deLocSrc: s.de_location_source || '', sig: s.sig || '',
+      refs: (s.sig_refs || []).map(r => typeof r === 'object' && r ? (r.id || r.name || '') : r).filter(Boolean), qrt: !!s.qrt
+    };
+  }
+  const DE_INFO = {DL1XYZ:['Germany','\u{1F1E9}\u{1F1EA}','JO41','EU',230], OE1ABC:['Austria','\u{1F1E6}\u{1F1F9}','JN88','EU',206], HB9XX:['Switzerland','\u{1F1E8}\u{1F1ED}','JN47','EU',287], OK1ABC:['Czechia','\u{1F1E8}\u{1F1FF}','JO70','EU',503], I2ABC:['Italy','\u{1F1EE}\u{1F1F9}','JN45','EU',248]};
+  const DXCC_SAMPLE = {Japan:339, USA:291, Australia:150, 'South Africa':462, Brazil:108};
+  function sample(){
+    const now = Date.now(), m = 60000;
+    const mk = (i, min, call, khz, band, mode, mt, country, cont, lat, lon, comment, src, de) => norm({
+      id: 'beispiel-' + i, dx_call: call, freq: khz * 1000, band, mode, mode_type: mt, dx_country: country, dx_dxcc_id: DXCC_SAMPLE[country], dx_continent: cont,
+      dx_latitude: lat, dx_longitude: lon, comment, source: src, de_call: de, time: (now - min * m) / 1000, de_country: DE_INFO[de] ? DE_INFO[de][0] : '', de_flag: DE_INFO[de] ? DE_INFO[de][1] : '', de_grid: DE_INFO[de] ? DE_INFO[de][2] : '', de_continent: DE_INFO[de] ? DE_INFO[de][3] : '', de_dxcc_id: DE_INFO[de] ? DE_INFO[de][4] : undefined
+    });
+    return [
+      mk(1, 1, 'JA1ABC', 14025.0, '20m', 'CW', 'CW', 'Japan', 'AS', 35.7, 139.7, 'CQ 22 dB 24 WPM', 'RBN', 'DL1XYZ'),
+      mk(2, 3, 'W1AW', 21074.0, '15m', 'FT8', 'DATA', 'USA', 'NA', 41.7, -72.7, 'FT8 -12 dB', 'Cluster', 'OE1ABC'),
+      mk(3, 6, 'VK2DX', 14195.0, '20m', 'SSB', 'PHONE', 'Australia', 'OC', -33.9, 151.2, 'Loud in Europe', 'Cluster', 'HB9XX'),
+      mk(4, 9, 'ZS6ABC', 7010.0, '40m', 'CW', 'CW', 'South Africa', 'AF', -26.2, 28.0, 'CQ', 'RBN', 'OK1ABC'),
+      mk(5, 14, 'PY2XYZ', 28074.0, '10m', 'FT8', 'DATA', 'Brazil', 'SA', -23.5, -46.6, 'FT8 -8 dB', 'Cluster', 'I2ABC')
+    ];
+  }
+  async function load(){
+    if (loading) return;
+    loading = true; setStatus('busy', 'lädt…');
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 10000);
+    try {
+      const r = await fetch(API + '?limit=500&max_age=7200', { signal: ctl.signal, headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (!Array.isArray(data)) throw new Error('Unerwartete Antwort');
+      spots = data.map(norm); demo = false; err = ''; lastOk = new Date();
+    } catch (e) {
+      err = e.name === 'AbortError' ? 'Zeitüberschreitung' : (e.message || 'Fehler');
+      if (!spots.length || demo){ spots = sample(); demo = true; }
+    } finally { clearTimeout(to); loading = false; }
+    render();
+  }
+
+  /* ---------- Darstellung ---------- */
+  function setStatus(kind, text){ $('#dot').className = 'dot ' + kind; $('#statusText').textContent = text; }
+  function ageText(ms){
+    const m = Math.max(0, Math.round(ms / 60000));
+    if (m < 1) return 'jetzt';
+    if (m < 60) return 'vor ' + m + ' min';
+    return 'vor ' + Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+  }
+  const HEARD_DXCC = { AT: [206], DACH: [206, 230, 287] };
+  const HEARD_NAMES = { AT: ['AUSTRIA'], DACH: ['AUSTRIA', 'FED. REP. OF GERMANY', 'GERMANY', 'SWITZERLAND'] };
+  function heardIn(s, area){
+    if (area === 'EU') return s.deCont === 'EU';
+    if (HEARD_DXCC[area] && HEARD_DXCC[area].includes(Number(s.deDxcc))) return true;
+    return (HEARD_NAMES[area] || []).includes(String(s.deCountry).toUpperCase());
+  }
+  function matches(s, skip){
+    const q = state.q.trim().toUpperCase(), now = Date.now();
+    if (s.qrt) return false;
+    if (now - s.t > state.age * 60000) return false;
+    if (skip !== 'band' && state.bands.size && !state.bands.has(s.band)) return false;
+    if (skip !== 'mode' && state.modes.size && !state.modes.has(s.mt)) return false;
+    if (skip !== 'src' && state.sources.size && !state.sources.has(s.src)) return false;
+    if (state.cont){
+      if (state.cont.charAt(0) === '!'){ if (!s.cont || s.cont === state.cont.slice(1)) return false; }
+      else if (s.cont !== state.cont) return false;
+    }
+    if (state.heard && !heardIn(s, state.heard)) return false;
+    if (state.hideWorked && logIdx && logStatus(s) === 'ok') return false;
+    if (state.newc && logIdx && logIdx.dxcc && logIdx.dxcc.size){
+      const c = countryStatus(s);
+      if (state.newc === 'c' ? c !== 'newc' : (c !== 'newc' && c !== 'newb')) return false;
+    }
+    if (q && !s.call.toUpperCase().includes(q) && !s.comment.toUpperCase().includes(q)) return false;
+    return true;
+  }
+  function chip(kind, value, label, n, on){
+    return '<button type="button" class="chip" data-kind="' + kind + '" data-v="' + esc(value) + '" aria-pressed="' + on + '">' + esc(label) + (n != null ? '<small>' + n + '</small>' : '') + '</button>';
+  }
+  function renderChips(){
+    const count = (key, skip) => { const m = new Map(); spots.forEach(s => { if (matches(s, skip)) m.set(s[key], (m.get(s[key]) || 0) + 1); }); return m; };
+    const bc = count('band', 'band'), mc = count('mt', 'mode'), sc = count('src', 'src');
+    const bands = [...new Set([...BAND_ORDER.filter(b => bc.has(b) || state.bands.has(b)), ...[...bc.keys(), ...state.bands].filter(b => b && !BAND_HUE[b])])];
+    $('#bandChips').innerHTML = bands.length ? bands.map(b => chip('bands', b, b, bc.get(b) || 0, state.bands.has(b))).join('') : '<span class="count">keine Daten</span>';
+    $('#modeChips').innerHTML = MODE_TYPES.map(([v, l]) => chip('modes', v, l, mc.get(v) || 0, state.modes.has(v))).join('');
+    const srcs = [...new Set([...sc.keys(), ...state.sources])].filter(Boolean).sort();
+    $('#srcChips').innerHTML = srcs.map(v => chip('sources', v, v, sc.get(v) || 0, state.sources.has(v))).join('');
+  }
+  function rowHtml(s, home, isFresh){
+    const here = gridToLL(home);
+    const where = (lat, lon, grid) => (typeof lat === 'number' && typeof lon === 'number') ? [lat, lon] : gridToLL(grid);
+    const fmtDist = (pt) => { if (!here || !pt) return ''; const r = distBrg(here, pt); return Math.round(r[0]).toLocaleString('de-AT') + ' km · ' + Math.round(r[1]) + '°'; };
+    const dist = fmtDist(where(s.lat, s.lon, s.grid));
+    const deDist = fmtDist(where(s.deLat, s.deLon, s.deGrid));
+    const hue = BAND_HUE[s.band] ?? 220;
+    const sides = open.get(s.id) || new Set();
+    const isOpen = sides.size > 0;
+    const khz = (s.freq / 1000).toFixed(1);
+    const sig = s.sig ? '<em>' + esc(s.sig) + (s.refs.length ? ' ' + esc(s.refs[0]) : '') + '</em> ' : '';
+    const t = new Date(s.t);
+    const hh = String(t.getUTCHours()).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0');
+    const call = esc(s.call);
+    const st = logStatus(s);
+    let detail = '';
+    const mapHtml = (kind, pt, approx, who) => {
+      if (!pt) return '<p class="mapnote">Keine Position bekannt.</p>';
+      const key = s.id + '|' + kind;
+      return '<div class="map" data-map="' + esc(key) + '" data-lat="' + pt[0] + '" data-lon="' + pt[1] + '" data-approx="' + (approx ? 1 : 0) + '" data-kind="' + kind + '" data-call="' + esc(who) + '">Karte lädt…</div>'
+        + '<p class="mapnote">' + (approx ? 'Ungefähre Position (Mitte des Landes), die genaue Lage ist nicht bekannt.' : 'Position nach Spot oder Locator.') + ' ' + pt[0].toFixed(2) + ', ' + pt[1].toFixed(2)
+        + (here ? ' · <button type="button" class="linkbtn" data-mapfit="' + esc(key) + '">Mit meinem QTH anzeigen</button>' : '')
+        + ' · <a href="https://www.openstreetmap.org/?mlat=' + pt[0] + '&amp;mlon=' + pt[1] + '#map=7/' + pt[0] + '/' + pt[1] + '" target="_blank" rel="noopener" class="linkbtn">OpenStreetMap</a></p>';
+    };
+    const dxPt = where(s.lat, s.lon, s.grid), dePt = where(s.deLat, s.deLon, s.deGrid);
+    const links = (c) => { const q = encodeURIComponent(c); return '<a href="https://www.qrz.com/db/' + q + '" target="_blank" rel="noopener">QRZ</a><a href="https://www.hamqth.com/' + q + '" target="_blank" rel="noopener">HamQTH</a>'; };
+    if (isOpen){
+      detail = '<div class="x">';
+      if (sides.has('dx')){
+        detail += '<div class="xb"><h4>DX · ' + call + '</h4><dl>'
+          + (s.name || s.qth ? '<dt>Station</dt><dd>' + esc([s.name, s.qth].filter(Boolean).join(', ')) + '</dd>' : '')
+          + '<dt>Land</dt><dd>' + esc(s.country || 'unbekannt') + (s.cont ? ' (' + esc(s.cont) + ')' : '') + countryBadge(s) + '</dd>'
+          + (s.grid ? '<dt>Locator</dt><dd>' + esc(s.grid) + '</dd>' : '')
+          + (dist ? '<dt>Entfernung</dt><dd>' + dist + '</dd>' : '')
+          + (dxPt && here ? '<dt>Richtung</dt><dd>' + beamText(here, dxPt) + '</dd>' : '')
+          + (st ? '<dt>Logbuch</dt><dd>' + esc(logLabel(s, st)) + '</dd>' : '')
+          + (s.cq ? '<dt>Zonen</dt><dd>CQ ' + esc(s.cq) + (s.itu ? ', ITU ' + esc(s.itu) : '') + '</dd>' : '')
+          + (s.refs.length ? '<dt>Referenzen</dt><dd>' + esc(s.refs.join(', ')) + '</dd>' : '')
+          + (s.comment ? '<dt>Kommentar</dt><dd>' + esc(s.comment) + '</dd>' : '')
+          + '</dl>' + mapHtml('dx', dxPt, s.locGood === false || s.locSrc === 'DXCC', s.call) + '<div class="acts"><button type="button" class="btn" data-copy="' + khz + '">kHz kopieren</button>' + links(s.call) + '</div></div>';
+      }
+      if (sides.has('de')){
+        detail += '<div class="xb"><h4>DE · ' + esc(s.de || '?') + '</h4><dl>'
+          + '<dt>Land</dt><dd>' + esc(s.deCountry || 'unbekannt') + (s.deCont ? ' (' + esc(s.deCont) + ')' : '') + '</dd>'
+          + (s.deDxcc ? '<dt>DXCC</dt><dd>' + esc(s.deDxcc) + '</dd>' : '')
+          + (s.deGrid ? '<dt>Locator</dt><dd>' + esc(s.deGrid) + '</dd>' : '')
+          + (deDist ? '<dt>Entfernung</dt><dd>' + deDist + '</dd>' : '')
+          + (dePt && here ? '<dt>Richtung</dt><dd>' + beamText(here, dePt) + '</dd>' : '')
+          + '<dt>Spottet</dt><dd>' + call + ' auf ' + khz + ' kHz</dd>'
+          + '</dl>' + mapHtml('de', dePt, s.deLocSrc === 'DXCC', s.de || '?') + '<div class="acts">' + (s.de ? links(s.de) : '') + '</div></div>';
+      }
+      detail += '</div>';
+    }
+    return '<article class="spot' + (isFresh ? ' fresh' : '') + '" tabindex="0" role="button" aria-expanded="' + isOpen + '" data-id="' + esc(s.id) + '" style="--h:' + hue + '">'
+      + '<div class="t">' + hh + 'z<small>' + ageText(Date.now() - s.t) + '</small></div>'
+      + '<div class="f">' + khz + '</div>'
+      + '<div class="c" data-side="dx"><b' + (st ? ' class="lg-' + st + '" title="' + esc(logLabel(s, st)) + '"' : '') + '>' + (s.flag ? esc(s.flag) + ' ' : '') + call + '</b><small>' + esc(s.country) + countryBadge(s) + '</small></div>'
+      + '<div class="e" tabindex="0" role="button" title="Infos zum Spotter" data-side="de"><b><span class="lbl">DE</span>' + (s.deFlag ? esc(s.deFlag) + ' ' : '') + esc(s.de || '?') + '</b><small>' + esc(s.deCountry) + '</small></div>'
+      + '<div class="m">' + (s.band ? '<span class="pill band">' + esc(s.band) + '</span>' : '') + (s.mode ? '<span class="pill">' + esc(s.mode) + '</span>' : '') + '</div>'
+      + '<div class="n">' + sig + esc(s.comment) + '</div>'
+      + '<div class="d">' + dist + '</div>' + detail + '</article>';
+  }
+  function render(){
+    renderChips();
+    const list = spots.filter(s => matches(s)).sort((a, b) => b.t - a.t);
+    const home = state.home;
+    const rows = $('#rows');
+    maps.forEach(m => m.el.remove());
+    if (!list.length){
+      rows.innerHTML = '<div class="empty">Keine Spots für diese Filter. Wähle ein längeres Zeitfenster oder lösche die Filter.</div>';
+    } else {
+      rows.innerHTML = list.slice(0, 300).map(s => rowHtml(s, home, !firstLoad && !seen.has(s.id) && !demo)).join('');
+    }
+    mountMaps();
+    spots.forEach(s => seen.add(s.id)); firstLoad = false;
+    $('#legend').hidden = !logIdx; $('#hideWorkedWrap').hidden = !logIdx;
+    $('#newcWrap').hidden = !(logIdx && logIdx.dxcc && logIdx.dxcc.size); logStatusText();
+    $('#count').textContent = list.length + ' von ' + spots.length + ' Spots' + (list.length > 300 ? ' (die neuesten 300 werden angezeigt)' : '');
+    const b = $('#banner');
+    if (demo){
+      b.hidden = false;
+      b.innerHTML = '<b>Beispieldaten.</b> Spothole ist gerade nicht erreichbar (' + esc(err) + '). Diese fünf Spots sind erfunden und dienen nur der Ansicht. Wenn du die Datei direkt per Doppelklick öffnest und der Fehler bleibt, lege sie auf einen Webserver (z. B. Home Assistant unter /config/www) und rufe sie darüber auf.';
+      setStatus('bad', 'offline');
+    } else {
+      b.hidden = true;
+      setStatus('ok', 'Stand ' + (lastOk ? lastOk.toLocaleTimeString('de-AT') : '') + (err ? ' (Aktualisierung fehlgeschlagen: ' + err + ')' : ''));
+    }
+  }
+
+
+  /* ---------- Karten ---------- */
+  const maps = new Map(); // key -> { map, el, world, theme, pt, home, line }
+  let leafletP = null;
+  const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
+  function loadLeaflet(){
+    if (window.L) return Promise.resolve(true);
+    if (leafletP) return leafletP;
+    leafletP = new Promise(res => {
+      const sc = document.createElement('script'); sc.src = LEAFLET_JS;
+      sc.onload = () => res(!!window.L); sc.onerror = () => { leafletP = null; res(false); };
+      document.head.appendChild(sc);
+    });
+    return leafletP;
+  }
+  function mapTheme(){
+    const m = (getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [17, 23, 19]).slice(0, 3).map(Number);
+    return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255 < 0.5 ? 'dark' : 'light';
+  }
+  /* Offline-Weltkarte (Natural Earth, gemeinfrei), kein Kachelserver und kein Schlüssel nötig. */
+  const WORLD = {"s":10,"land":[[[-175,1781,2,3,-3,3,-6,-1,-1,-7,1,-5,5,-1,3,4,-1,4]],[[-161,-1800,1,2,-5,-1,-1,-1,-2,3594,-2,-7,4,-1,2,5,0,3,3,6,0,-3600]],[[-47,392,-12,-5,-6,1,-3,6,-3,1,-6,-3,-3,1,-5,-1,-6,3,-10,5,-2,3,-5,2,-10,-1,-8,2,-16,0,-5,2,-7,-3,-7,-4,-6,-6,-4,-10,-5,-11,-11,-11,-1,-4,-8,-7,-2,-4,-7,-1,-8,5,-5,2,-3,0,0,2,-10,-1,-4,-1,-2,2,-4,-1,-4,-5,-3,-8,-6,-12,-3,-4,-4,1,-1,2,-5,-1,-8,-2,-8,-1,-5,-3,-5,-7,-1,-2,-5,-4,-5,-3,-7,-5,-11,-12,-6,-7,-4,-7,-4,-11,-1,-5,-2,-1,1,-6,-2,-5,2,-11,-1,-6,0,-4,-4,-11,-1,-8,-4,-6,0,-5,3,-4,1,-3,4,-5,-1,0,2,-2,6,1,7,-4,2,3,7,0,10,-6,8,-5,0,0,13,-8,8,-7,7,-4,10,-2,7,-3,15,-3,12,0,6,-1,4,-4,8,-5,12,-6,7,-2,9,-8,8,-1,6,-1,9,2,9,3,5,1,9,3,4,2,6,6,5,3,7,1,6,0,3,-3,6,-3,6,-2,2,0,4,3,10,-3,7,-2,6,-5,2,1,3,-1,8,-3,10,-8,10,-10,9,-7,10,-6,3,0,3,2,8,3,7,2,2,-2,11,3,8,2,6,-4,2,-5,5,-2,1,-2,3,0,-4,-10,1,-4,-3,-4,1,-8,6,-5,7,-4,7,-7,0,-7,0,-9,-2,-8,-2,-8,-6,-16,-3,-6,-3,-9,3,-9,0,-4,2,-7,0,-6,-2,-12,-3,-7,-4,-10,1,-2,0,-3,4,-10,8,-9,5,-9,7,-6,1,-3,4,-7,5,-5,4,-2,7,-1,6,-5,4,-4,1,-2,2,-3,5,-1,2,-1,1,-3,5,-6,0,-4,3,-2,2,0,2,-3,2,-1,8,-1,4,1,8,-4,3,-5,2,4,7,5,5,2,6,-1,5,3,9,2,10,-2,5,-1,5,1,5,-2,4,-6,4,1,5,0,3,4,5,3,3,0,7,3,7,6,1,3,6,3,5,0,7,4,3,6,10,7,1,0,3,5,1,9,7,8,3,5,8,8,13,-2,8,4,6,1,6,6,5,10,4,8,10,7,7,3,0,7,-5,6,1,10,-2,10,0,4,5,10,2,11,4,6,3,10,2,17,1,16,-2,5,4,10,0,10,-2,4,0,7,5,11,-2,7,-5,0,4,8,-2,1,-5,-5,-5,0,-2,3,-9,-1,-5,-6,-5,1,0,6,-5,2,-2,4,-3,12,1,4,-2,8,-4,13,-9,5,-2,9,-4,14,-5,11,2,5,5,5,8,-3,4,3,5,8,1,6,-2,14,-4,3,0,4,-2,3,-1,10,-3,3,0,13,-3,10,-3,9,-1,5,3,8,3,4,1,9,-2,7,-5,3,4,2,-3,8,0,8,2,5,3,3,1,-1,5,3,7,2,3,1,0,0,8,4,7,5,0,0,8,-1,4,2,5,-3,4,4,-1,-6,2,-9,-6,-7,-1,-15,5,-8,1,-11,-4,-2,-2,-7,6,-10,0,-11,10,-6,5,-7,8,5,5,-6,9,11,1,15,7,4,-1,19,6,12,3,12,0,17,-7,17,-4,14,2,12,-1,9,5,12,5,1,6,-2,4,-6,1,-6,3,-3,9,-13,4,-12,5,-8,2,7,8,8,4,-5,4,14,3,0,-2,-9,-1,-8,-3,-6,-1,-10,-3,-8,-6,0,0,0,-3,5,1,10,-4,-2,-2,-11,-5,-13,2,-6,4,2,3,-10,2,1,4,10,1,-2,1,-1,2,-16,4,0,-1,-10,-6,-3,-7,-8,-3,0,-2,-5,1,-3,-12,-2,-4,-6,-7,-3,-6,3,-4,1,-3,9,-2,-2,-1,-12,-3,-4,-5,-8,4,-4,2,1,1,-7,0,-5,-2,-12,-6,7,-1,-5,0,-6,5,-5,-2,-2,-6,3,-5,5,-2,-4,-5,5,-3,5,-5,0,2,-9,-5,3,-1,-6,-9,4,0,-7,4,-8,8,-4,7,-2,5,-4,5,-5,3,0,1,-2,2,0,4,-6,4,-1,7,1,3,1,2,-1,1,-2,3,-3,2,-5,3,-9,4,-6,3,-9,7,-8,1,2,4,-5,4,0,1,-6,-4,-3,3,-3,4,0,0,0,1,2,1,-8,-3,-8,-5,1,-3,-1,-5,3,-5,9,-8,5,-8,11,0,8,-3,3,-2,-3,-3,9,-3,7,-5,9,-2,1,-4,-2,5,-6,1,-8,-6,-4,-4,7,-5,-1,-1,-5,-8,-5,-1,-4,3,0,6,2,2,2,5,-4,5,-3,2,-4,4,-3,2,-6,4,-5,1,-7,4,-8,7,-9,5,-7,10,-3,1,-5,4,-8,-2,-5,-4,-6,-1,-4,-6,-9,3,-19,-3,-15,-6,-1,-6,0,-7,-9,-2,-13,-3,-1,-6,-6,-8,-4,-6,4,-4,-6,-7,-2,-2,-7,-7,-7,0,-13,0,-10,-4,-6,-4,-4,1,-5,4,-3,5,-3,2,-10,-3,-4,2,-5,-1,-5,8,2,6,-1,1,-5,3,-2,7,1,4,4,4,0,6,2,4,0,3,-2,4,0,7,0,4,-4,7,14,-1,12,0,14,-2,11,1,8,-1,16,6,5,20,2,11,-10,5,-8,4,-15,7,-1,2,13,-3,17,12,-3,-5,9,8,23,8,3,2,9,2,8,3,5,15,9,4,14,0,8,2,2,0,8,-2,2,5,7,4,-2,6,-1,5,-4,10,0,3,2,3,2,1,9,2,4,3,8,-5,-1,-3,-2,-3,1,-1,5,-4,-2,1,-3,-7,-8,-5,3,-4,0,-2,10,-4,0,2,11,3,5,-4,11,-3,5,3,7,4,16,4,12,-2,10,-3,1,0,10,5,2,3,14,8,-2,8,0,6,5,4,9,-8,8,0,8,8,2,6,1,-1,-3,3,-7,6,-1,3,13,1,13,-2,10,1,11,5,11,5,-10,-1,-18,-3,-18,-3,-16,6,-6,3,-10,10,2,9,-4,6,4,6,9,11,23,2,7,4,-1,5,-14,-3,-17,-7,-10,-6,2,-8,-16,-9,-20,-14,-7,-7,7,-5,10,-11,-9,-3,-11,-17,-4,-9,-5,1,-12,-8,-6,0,-12,9,-3,11,-8,15,-8,6,-6,-12,-20,-2,-14,5,-13,11,-4,23,-3,6,9,9,27,10,19,14,19,19,24,8,16,12,28,5,22,-1,16,8,15,0,19,2,18,-7,31,-3,-13,-6,11,3,10,-6,17,-2,27,-12,38,-4,8,-7,0,-5,-11,-3,-16,8,-45,-2,-7,-7,16,-5,1,-10,0,-3,13,-2,8,4,1,5,-6,3,7,-6,24,3,8,7,-6,10,23,-1,9,-3,10,7,5,6,-8,6,5,6,-7,-4,28,-5,5,-1,-12,-6,0,-3,7,2,16,6,2,5,21,9,35,-1,8,-6,-10,-1,12,3,7,1,19,4,15,-6,11,6,12,6,-11,4,6,-4,29,-3,14,-11,36,5,7,5,-10,3,-1,1,-12,4,4,8,-6,3,0,9,18,9,7,2,7,-2,27,-6,2,-8,-10,-3,7,-7,3,-14,-2,-6,11,-7,-5,-14,-19,-1,11,3,4,3,11,5,3,5,9,5,-6,7,4,1,-11,5,-2,10,8,8,-13,7,18,7,-2,1,5,-6,5,-10,-4,-1,11,7,-5,4,17,0,21,-6,18,9,-9,10,-1,3,17,-1,25,1,21,6,-8,6,12,0,11,5,20,2,26,2,3,1,27,-2,8,5,22,0,19,5,2,4,10,4,24,-3,17,-3,-14,-1,23,-5,2,2,10,0,29,-5,22,-4,8,-5,-2,-3,-11,-5,-26,-3,-8,-2,12,-2,15,2,9,-7,5,3,5,2,16,-2,32,-5,2,-1,42,7,1,-1,21,0,16,-6,16,-6,5,-4,-6,-8,12,-4,16,10,10,-4,16,3,17,-4,19,3,7,-1,17,9,-8,4,14,-6,90,-6,9,-8,26,2,40,-1,20,-4,8,-8,-1,-3,12,2,14,1,18,-2,18,1,19,-9,18,3,12,7,-8,4,5,-3,31,1,21,-5,29,-4,-3586,-8,25,-10,26,-6,-1,-3,7,8,-3,-2,27,-9,20,-5,-10,-1,-16,-9,-1,-2,-4,0,-9,3,-8,3,-13,5,-2,1,-10,-1,-12,3,-5,4,2,-2,-12,-5,5,-4,-6,0,3600,-5,-13,1,-13,-5,9,-8,6,-3,5,-4,1,-3,-3,2,-18,-7,-28,-1,-9,-8,-16,-6,-14,-4,-4,7,-14,-8,-26,4,-5,-5,-9,2,-14,-7,-3,-10,-12,-4,1,-2,11,-14,-1,-1,-10,-8,-4,-4,4,-6,-17,-11,-4,-2,-15,-11,-3,-9,-14,7,-4,15,-4,22,-6,14,5,6,9,4,0,3,16,12,17,10,18,8,18,15,8,-1,-12,-9,-6,-11,-26,13,-8,-4,-26,-16,-25,-7,8,-2,-22,-1,-15,7,0,2,-15,-5,-13,1,-30,-3,-33,-19,-32,-24,-39,-1,16,-6,5,-2,10,5,6,-1,11,-11,14,-9,1,-10,-8,-12,-1,-16,-4,-14,-15,-7,-4,-12,-13,-11,-14,-6,-6,-6,-14,0,-6,5,-6,-7,-14,-4,-1,1,-4,-4,-4,-3,-3,-7,0,-2,-5,-2,-2,-3,-4,-2,-6,-2,-5,-5,0,-1,-1,-1,4,-5,6,-12,8,-6,3,-12,0,-5,-4,-2,-9,-4,-8,-1,-9,5,-1,8,2,10,-5,2,8,8,-7,2,-5,-1,-1,-1,-3,2,-1,0,-2,2,-3,4,3,2,2,1,-1,6,3,2,-1,1,-6,2,-4,-3,-14,-4,-8,-3,-10,5,5,4,-2,6,8,5,-6,-3,-8,-7,-12,-6,-6,-1,-10,-5,-5,-6,6,-2,8,-5,0,-2,8,7,11,-4,9,0,7,-6,1,-2,-14,-6,-5,-5,-9,-7,-5,-5,10,-10,4,-9,6,-8,7,-8,0,-2,-6,-6,2,-3,6,-8,-2,-8,-2,-1,-6,-10,-7,-14,-8,-12,-9,-9,-14,-8,-14,-1,-11,-5,-6,3,-4,-4,-6,-5,-14,-2,-10,-11,-4,0,-5,7,-3,4,3,3,-14,-1,-5,-9,-13,-9,-8,-7,-2,-11,7,-13,10,-6,9,-8,6,-19,4,-17,-1,-7,-8,-6,-12,-9,-8,-9,-12,6,-4,7,3,6,-8,1,-8,6,-4,10,-5,4,-9,0,-9,8,2,0,-9,-11,-1,-15,-5,-8,-3,-8,0,0,7,-9,4,-9,2,-5,5,-2,6,-5,5,-1,3,-6,6,-6,4,-7,0,-5,-1,-3,1,-6,1,-3,4,-9,3,-3,0,-1,-7,8,-9,8,-12,5,-1,6,-6,9,-1,5,-4,7,1,5,-2,3,-4,5,-2,6,-5,5,-5,-6,-2,5,-2,7,2,9,3,8,-1,7,3,6,-4,11,1,5,-4,12,-3,13,-2,8,-4,-5,-7,-7,-11,1,-6,2,-6,13,3,9,-2,12,-8,3,2,2,-6,8,-7,5,-3,5,-1,5,-2,6,-4,0,-9,-4,1,-6,-3,2,-5,-1,-1,1,-3,1,-4,-4,-1,0,-7,-2,-12,-8,0,-5,-5,-7,-14,-12,-12,-6,-7,-7,-10,-4,0,-3,-5,-3,-9,-1,-5,-8,-3,-13,2,-8,1,-9,-4,-17,0,-1,-6,-8,-4,-3,3,-3,-9,-6,-4,-3,-4,9,-9,14,-5,10,-4,5,-3,9,-5,13,-3,6,-2,14,-9,19,-4,13,-3,12,0,10,-2,-6,-14,1,-7,12,-13,4,4,3,-3,9,-11,2,-8,8,-3,7,-7,-2,-19,0,-16,-1,-14,3,-19,2,-11,1,-11,13,-4,1,-5,-1,-8,-5,-10,3,-12,8,-10,3,-10,9,-6,13,-8,-1,-5,3,-7,-4,-3,1,-6,-5,2,-2,-1,-7,3,-9,4,-2,5,-4,2,-4,7,-4,0,-4,-1,-3,1,-3,3,-3,2,-2,1,7,-1,5,3,1,3,-3,3,-6,0,-6,-2,-4,2,1,2,-3,0,2,8,0,8,-1,6,7,7,6,7,7,7,3,3,-1,1,-4,-1,-2,-1,-8,1,-7,4,-3,6,-2,7,-1,6,-6,5,-3,2,-2,4,-2,0,-6,-4,-3,-1,-3,-4,-7,-4,1,-5,-3,-2,-5,-1,-6,1,-2,-1,0,-5,-3,-6,-5,-1,-2,-2,0,-6,-3,-4,-4,0,-3,-5,1,-6,-3,-6,0,-5,-3,-7,-5,-2,-3,0,-4,-10,-5,-16,-7,-9,-1,-5,1,-3,-4,-5,-2,-7,-1,-8,0,-3,-3,-2,0,-3,-3,-1,0,-5,-1,-3,0,-7,6,-3,6,1,3,-2,7,-2,4,-3,1,2,4,-1,2,1,4,0,5,-2,3,-3,4,0,3,-5,9,-6,8,-3,7,-7,1,-4,10,-7,7,-1,6,1,11,-6,4,-5,2,-5,6,-3,2,0,5,-3,2,-3,8,-3,8,-7,7,-5,0,-5,5,2,4,0,4,2,1,-1,-4,-3,-8,-2,-5,-2,-2,-3,4,-3,4,-5,15,-7,-1,-1,-11,4,-10,6,-16,8,-5,4,-6,3,-11,9,-1,-2,-7,0,-9,12,-2,2,-10,3,-2,-2,-10,1,-12,4,-2,4,-4,5,-12,6,-9,3,-5,5,-9,14,-6,5,-6,6,-3,3,-3,5,-3,2,-4,0,-3,-6,-2,4,-2,4,-4,2,-5,4,0,5,3,10,1,10,3,9,1,5,2,4,0,5,0,4,2,4,1,6,3,4,0,4,-3,0,-5,-1,-6,0,-3,-2,-11,-2,-11,-5,-13,-6,-15,-9,-11,-9,-13,-11,-9,-10,-9,-15,-8,-10,-12,-11,-5,-2,-3,-2,-4,-7,-4,-3,-1,-3,-7,-2,-4,-3,-6,-2,-4,-4],[383,489,-7,3,-2,9,-5,7,-2,15,3,15,2,1,7,-2,11,2,3,-8,7,3,0,-7,9,2,-3,10,4,8,6,-7,5,-3,-2,-8,-8,-1,7,-3,2,-1,4,3,4,-2,3,-12,9,-4,3,-6,3,0,-1,10,7,0,2,9,-1,8,9,2,7,-2,-1,-10,2,-8,-4,-12,-2,-9,-6,-5,-2,-9,-10,-10,-9,9,-7,-1,-12,11,-5,5,-7,5,-1,5,-2,3,-1,-8,-8,-2,-4,-2,-2,-3,-5,0]],[[697,-1410,-2,19,-5,16,-1,10,4,9,3,12,-1,15,4,15,3,16,-4,7,2,7,5,3,-1,7,-9,16,7,14,-8,1,2,12,3,4,-1,12,-4,16,-4,23,-2,14,1,10,-5,13,-5,-14,-2,18,1,27,2,9,-6,10,5,11,4,-10,4,6,0,12,1,9,-2,8,-6,10,1,11,-5,17,2,16,0,15,6,-2,2,9,-4,16,-9,0,8,6,0,8,10,5,6,-11,4,-12,11,1,7,12,-1,13,-5,10,-11,14,-5,-9,-2,19,-10,0,8,13,-7,12,-7,-3,-7,10,7,10,9,7,11,1,-1,14,-1,15,-5,13,-5,1,-6,-8,-5,7,-5,-1,-7,-19,-1,-14,3,-11,-5,-3,-9,-9,-4,-3,-7,-12,-1,-14,-4,-8,-6,-1,-2,-11,-8,-13,-11,-10,-8,-4,-12,-1,-1,15,-10,4,-7,5,2,14,-4,19,-4,10,-5,7,-3,12,-4,11,-1,16,-1,11,-8,-1,-10,3,-11,7,-10,15,3,8,11,5,15,-5,6,-7,4,16,7,11,7,6,7,-1,9,-7,7,-12,11,12,9,-5,15,-3,3,7,-3,17,-1,10,2,9,-3,9,-6,12,-4,3,0,18,-9,0,-12,3,-2,9,-6,7,6,15,11,10,4,6,-9,8,-12,13,-12,11,-7,-4,-5,13,-6,9,-3,16,-3,7,-8,4,-2,7,-3,4,-12,1,-3,-7,-4,-7,-3,-17,-9,-12,-1,-17,2,-22,0,-15,-1,-10,-7,-8,-4,-13,-14,-15,-9,-11,2,8,13,16,8,21,1,15,-5,9,-6,-9,-11,3,-8,3,-5,13,2,17,11,10,-7,0,-4,7,-6,-12,-6,-23,-4,-9,-8,-12,1,-7,9,-1,8,18,0,-16,-2,-11,-3,1,-5,-10,-3,-11,-3,-10,-6,-5,-2,-2,-6,0,-5,3,0,4,3,-1,-2,3,-3,-1,-1,-6,0,-5,-2,-8,0,-4,-1,-6,-3,-8,2,15,-2,3,-3,-14,0,-7,2,0,-3,-3,-1,3,-7,-2,-8,-7,3,-1,0,-2,3,-3,-5,2,-2,2,-4,0,-4,-3,-8,-5,1,-1,6,3,4,-5,8,-2,-4,-1,-6,2,1,-7,-3,7,-9,0,-1,3,-3,1,-10,2,-8,-7,-3,-10,-6,-7,0,-5,-4,-5,-3,-1,-7,-11,-5,-6,-6,-4,-7,-2,-7,2,-8,3,-7,5,-5,0,-11,4,-7,0,-4,0,-6,-3,-1,-3,1,-5,4,-1,3,-4,8,-5,8,-5,4,-2,7,2,5,-2,8,-8,2,-4,-5,-10,1,-2,5,-5,2,-6,-1,-11,1,-9,-1,-8,-1,-4,-3,2,-4,0,-2,2,-1,-2,1,-4,-2,-4,0,-7,6,-7,-1,-9,2,-7,-1,-6,-2,-9,-8,-9,-4,-10,-5,-5,-4,-3,-7,0,-5,1,-3,2,-9,-4,-7,-2,-14,-1,-5,-1,-5,2,-5,3,-8,2,-7,7,-6,2,-5,4,-2,11,-5,4,3,9,1,7,2,8,2,6,4,6,6,3,8,0,3,2,3,7,2,11,0,8,0,6,-2,3,-5,0,-5,-6,-7,-2,-1,2,-5,-2,-7,-2,2,-3,0,-2,-1,0,-1,2,-2,0,-5,-2,-1,1,-4,-1,-1,1,-5,-2,-2,-2,-1,-1,-3,-2,-2,3,2,1,-2,3,0,1,2,2,0,3,-1,1,0,1,0,5,0,5,1,3,1,1,0,3,-1,3,0,2,1,2,-1,5,-1,1,-2,3,-2,3,-1,4,-3,3,-1,-1,-2,-1,-4,1,-3,-2,-4,-1,-5,-1,-2,1,-5,0,-1,-1,-4,-1,-3,0,-2,-2,-3,1,-2,1,-5,3,-4,4,-4,5,-4,3,-2,0,0,4,0,1,-2,3,1,5,2,4,2,6,3,3,0,6,-1,-1,-1,6,-2,4,-3,4,-2,3,-1,6,7,7,1,4,4,0,8,2,5,6,0,6,2,1,-1,8,5,8,3,4,4,4,0,4,-3,3,-3,-2,-3,-1,-1,-5,-4,3,-6,0,-5,-5,-8,4,0,4,8,3,3,-4,8,0,4,12,4,-1,4,4,-7,3,-1,7,-5,7,-3,0,-1,9,1,11,-4,5,-1,8,3,6,2,0,1,12,0,12,-3,-8,-5,3,0,8,-5,8,-8,1,0,5,-2,4,-4,7,-7,6,-5,0,0,4,-5,6,-3,4,-2,12,2,1,0,8,-2,10,-2,4,-2,7,-8,11,-4,1,0,4,-6,2,-17,6,-2,5,-7,1,-8,-8,-3,3,-1,18,-10,0,6,8,-3,12,-7,17,-5,5,-6,-2,3,12,-5,19,0,15,-8,15,-11,13,-3,7,0,9,-4,4,-12,3,-6,2,-17,-4,-6,-5,-14,-14,-12,-7,-8,-7,-1,-3,-7,-3,-19,1,-15,-3,-7,-1,-4,-3,-13,-2,-13,-10,-10,-1,-5,-9,-6,-2,0,-11,-4,-15,-4,-8,-3,-11,-8,-11,-10,-9,-7,-1,-6,1,-10,-2,-5,-2,-5,-7,-18,-11,-8,-9,-4,-7,-10,-4,-6,-7,-6,-4,-6,-11,2,-8,-1,-5,5,-9,-1,-7,6,-6,-5,-1,-9,13,-7,-2,-4,7,-5,-1,-13,-9,-5,-15,-2,-20,1,-11,-6,2,-8,-2,-5,2,-3,-6,-2,-11,4,-9,-3,-4,-10,1,-3,7,4,5,-6,3,-3,-9,-6,-8,-10,-1,-5,-3,0,-9,-6,-8,-7,-3,-7,10,-2,10,-9,-4,-6,-12,-12,-6,-4,-9,-4,-4,-11,3,-6,6,1,-4,0,-9,-2,-4,-4,-9,-9,-2,-1,-4,4,-12,7,-11,5,-12,7,-4,6,3,6,-5,17,-1,10,4,8,11,3,-15,8,9,17,3,-4,12,21,5,3,-7,-13,-3,2,-6,14,3,19,3,6,5,10,-3,11,-1,1,4,16,6,16,7,15,5,15,-3,8,3,12,-1,13,6,19,2,21,3,22,3,16,-1,15,-2,5,-10,4,-1,10,-19,11,-18,7,-8,8,-4,3,1,13,-8,18,-10,20,-9,5,-4,7,-4,7,-7,4,-8,4,4,10,-5,7,3,6,8,7,5,5,-2,-5,-4,5,-6,2,2,9,-1,2,3,6,2,7,4,4,-1,2,6,4,6,3,-1,1,4,5,-1,3,3,1,5,6,4,5,4,3,-4,6,2,9,-2,2,2,9,-2,5,-4,3,-3,6,-2,2,2,1,-2,3,-2,3,-5,-1,-5,-3,-2,-3,-4,0,-2,-2,-1,-6,5,-1,-3,-1,-1,-1,-5,6,-2,-2,-1,1,-3,4,-2,1,-4,1,-3,0,-4,-2,0,1,-2,2,-5,3,-2,1,1,3,0,2,-3,2,-4,1,-3,3,-1,2,-3,-3,1,-2,-2,2,-2,1,-4,2,-1,3,0,4,1,1,-2,2,2,3,-4,4,-4,3,-2,4,-5,4,-5,2,1,-2,2,1,1,3,-2,1,-3,-3,-1,1,-6,1,-3,2,-5,0,-5,2,-3,2,-5,0,-6,2,-5,4,-5,11,-12,3,-5,3,-8,-1,-6,-3,-8,-1,-5,2,-7,2,-7,5,-9,1,-8,5,-11,4,-9,3,-2,1,-6,3,-10,4,-4,6,-11,6,-5,5,-2,1,3,3,-1,3,2,3,0,5,-3,4,-1,5,-3,10,-9,7,-10,7,-5,4,-9,2,-1,6,1,3,-5,5,-6,7,-2,0,-6,6,-6,5,-4,3,-1,7,-5,8,-4,4,1,4,-8,-1,-3,3,-6,-4,-1,-5,1,-7,1,-4,4,-7,7,-3,2,0,1,-4,2,0,1,-6,2,-3,3,-3,3,-5,6,-10,3,-4,3,-5,3,-5,0,0,5,-5,4,-4,4,-2,0,-4,-5,0,-1,6,-3,6,-6,5,-8,2,-5,8,0,5,-1,3,-5,5,-7,-2,-1,3,-2,2,-7,6,-6,1,1,-1,4,4,4,5,0,7,-7,3,-6,6,-4,6,-4,8,-4,9,-4,5,-2,6,-6,1,-5,3,-1,1,-6,2,-3,1,-10,2,-2,6,-1,10,-10,14,-8,2,0,3,-5,9,-7,8,-2,5,-5,8,2,9,0,8,-3,9,4,9,1,9,1,14,-2,8,-3,5,-3,2,1,-4,15,-9,5,3,3,8,-2,8,-3,0,-2,10,-19,4,-7,4,-18,9,-6,6,2,5,-13,8,-2,7,-12,5,0,4,-6,3,-9,9,-2,8,-13,9,-6,1,-9,0,-16,3,-12,10,-21,2,-9,4,-18,-1,-14,5,-19,4,-12,-2,-11,-7,2,-1,-6,-2,-11,-3,-9,-2,-11,5,-2,10,5,3,11,3,-3,-6,-13,-6,-7,-7,-14,-5,7,-8,-9,-4,-11,-3,-10,-4,-3,-5,-15,-5,-3,-4,-12,0,-7,-2,-9,-4,-10,-3,-9,-3,-17,2,-1,4,11,3,9,6,11,1,12,4,5,6,14,2,2,4,8,7,1,6,6,-3,-12,2,-3,-4,-6,5,-6,-3,-3,5,-4,-4,-10,0,-6,6,-1,3,2,4,-6,-2,-13,5,-9,2,-6,6,-1,4,-7,6,4,5,8,5,3,1,8,-1,7,4,8,0,8,3,7,4,-2,2,-5,4,7,0,-6,-2,-11,-3,-3,3,-7,-2,-15,3,-14,4,-4,6,-13,4,14,5,22,0,8,-5,-1,0,21,6,-8,4,-12,5,-7,4,-10,4,-14,5,6,0,18,5,12,5,3,4,10,1,10,5,19,-1,9,6,15,-3,15,-4,8,2,4,-1,17,-2,-1,-2,16,1,10,-3,21,-1,19,-1,8,2,13,-3,15,-2,11]],[[625,-840,4,8,0,13,-2,0,-5,-12,0,-7,3,-2]],[[728,-798,5,-11,4,1,1,4,-1,23,-6,18,-3,0,1,-10,0,-11,-2,-11,1,-3]],[[621,-803,3,4,0,4,-2,2,-6,-4,1,-4,3,-3,1,1]],[[750,-936,-4,-6,1,-14,2,-12,5,5,2,14,-3,9,-3,4]],[[775,-938,0,-5,1,-19,2,-2,0,20,-2,7,-1,-1]],[[788,-968,-4,12,-3,-2,-3,-15,3,-8,4,-5,4,0,-1,13,0,5]],[[744,-881,1,-17,3,-26,6,-4,5,-1,4,-10,1,-21,4,-11,4,4,-1,20,-3,11,0,20,-3,9,-4,-3,-3,12,-2,6,0,14,-1,14,2,16,1,20,-1,17,-4,10,-4,3,-2,-7,-3,-14,2,-13,-2,-29,0,-20]],[[782,-1113,-2,14,-3,-3,-3,-19,3,-14,4,8,1,14]],[[788,-1110,-2,13,-2,-12,0,-16,2,0,3,10,-1,5]],[[513,-556,-6,-5,-9,-7,3,7,-2,6,-3,-3,-3,9,3,4,-4,10,-7,-3,2,7,-5,1,-7,4,-8,-5,-1,-4,2,-7,8,2,2,-2,-9,-12,0,-6,5,7,2,-10,0,-10,0,-20,3,-1,4,6,2,-4,6,8,16,10,6,7,3,8,0,5,-3,-2]],[[651,-839,-3,11,-3,12,-5,0,1,8,-4,7,-3,-9,3,-15,4,-6,-5,-10,-5,-14,5,-4,-1,-13,5,8,8,2,9,3,0,7,-5,2,2,5,-3,6]],[[724,-788,4,10,-6,22,-4,14,-5,1,3,19,-7,10,-4,24,-4,9,-9,9,-5,-18,-6,23,-3,16,-9,15,0,15,-7,-3,-12,-17,4,-12,10,-16,-1,-13,-6,-1,-6,10,-5,14,-2,4,-10,6,-7,-3,2,-13,8,-25,-8,14,-6,11,-4,1,4,-27,6,-21,5,-12,3,3,5,-15,5,-14,-3,0,-2,-29,4,-9,7,7,0,19,2,20,3,-3,5,4,10,12,4,-2,4,-4,5,-15,3,-21,2,7,7,-11,0,-9,4,-8,-3,-5,-2,-18,3,-36,3,-22,1,-16,4,-8,4,10,0,-14,10,-3,9,8,4,10,3,26,-6,-8,-7,8,8,9,5,26,-11,17,-6,-2,3,20]],[[741,-945,0,21,-2,19,-9,-15,-2,-12,-8,-11,1,-11,8,-6,5,0,5,5,2,10]],[[761,-1229,8,17,6,21,0,15,1,14,-7,-1,-4,-8,0,-9,-4,-19,-2,-16,2,-14]],[[540,-1327,1,10,-11,-4,-8,9,0,-4,4,-6,5,-4,3,-5,5,-1,3,0,-2,5]],[[793,-1055,-1,20,-4,27,-5,7,-4,4,1,-16,3,-16,1,-23,3,10,2,-12,4,-1]],[[485,-1235,-1,-5,4,-17,4,-3,3,-8,3,-2,2,-11,5,-3,3,0,-2,11,-2,6,-1,9,-4,4,-4,5,-4,10,-6,4]],[[744,-1215,-2,14,0,25,-3,10,-4,11,-3,-13,-7,-24,-7,-13,-4,0,-5,-26,4,-5,6,-23,4,4,7,7,7,9,6,-10,1,34]],[[758,-1078,2,9,0,10,-5,2,-5,-6,-1,-34,-5,-25,0,-15,3,-2,5,21,-2,-45,2,-14,10,14,3,9,-4,28,-6,18,0,17,9,-14,4,9,-1,10,-5,4,-4,4]],[[731,-1065,-4,11,-10,6,-7,3,-5,17,-5,18,-4,-1,-1,-16,-4,6,-3,-3,1,-18,3,-18,-1,-11,-3,-19,-2,-25,-1,-18,5,-6,3,-13,-1,-9,8,-12,1,6,1,16,0,14,2,13,2,-19,-1,-22,0,-14,4,-5,4,23,0,-16,3,-17,7,8,4,7,6,27,-2,10,-4,-5,3,23,-5,13,5,12,-4,9,-9,8,4,5,10,-7,1,9,-1,10]],[[727,-1004,7,-11,4,11,-2,12,2,18,-3,3,-5,-10,-4,16,-9,-2,-4,-17,1,-9,3,-7,8,-25,3,0,-1,21]],[[736,-1066,0,13,-2,8,-6,-9,7,-15,1,3]],[[767,-985,-4,8,-6,0,-7,-5,-1,-16,2,-11,5,0,0,-16,7,-1,0,11,3,15,0,14,1,1]],[[806,-960,3,7,1,10,2,-4,1,23,-6,13,-2,17,-2,16,-6,8,-4,12,-3,-14,-7,-18,-1,-18,1,-21,5,-11,3,1,3,8,0,-19,3,-11,5,-6,4,7]],[[819,-916,2,15,0,12,2,19,4,15,-1,12,-3,11,6,8,1,13,1,18,1,30,-1,6,1,29,0,21,-1,22,-1,27,-1,21,-3,18,-2,0,-5,-24,-2,-25,-2,-9,0,22,-6,-23,-3,-17,-8,-17,-2,-20,-2,-7,-1,-30,-1,14,-2,-7,-5,8,-3,-9,-3,-16,-4,-5,-3,-14,-2,2,0,17,-2,0,-6,-27,3,-26,-2,-29,1,-15,1,-19,5,-1,2,18,7,-5,1,7,-5,26,7,-13,2,-17,4,8,2,18,3,3,4,-14,6,-4,-1,27,-1,8,4,16,1,-23,-1,-35,4,-18,4,-8,3,-12,3,-2]],[[674,-752,-3,-7,0,-11,5,-2,5,4,2,9,-3,8,-4,0,-2,-1]],[[695,-963,-4,7,-3,-7,3,-13,-1,-8,4,-14,3,9,4,7,-2,10,-2,6,-2,3]],[[499,-645,1,3,-3,13,-4,11,-2,0,0,-5,3,-13,5,-9]],[[470,-640,-5,3,-1,8,0,9,-4,-5,0,-4,4,-12,3,-3,3,4]],[[201,-1554,-1,2,-1,1,-4,3,0,0,-3,-4,-1,-3,-2,-2,2,-2,2,0,4,-2,1,1,2,1,2,0,1,0,-1,1,-1,4]],[[208,-1560,-2,-1,0,-3,2,-2,1,-1,0,0,1,1,-1,3,-1,3]],[[212,-1568,-1,0,0,-5,1,0,0,5]],[[217,-1580,0,1,-4,2,0,0,0,-1,0,-3,2,-2,1,0,1,3]],[[222,-1594,-2,1,-1,-2,2,-3,0,1,1,1,0,2]],[[604,-1665,-1,8,-4,1,-1,-6,1,-6,3,-7,2,10]],[[580,-1532,-1,6,-3,5,-5,-9,-4,-10,3,-5,5,-2,3,9,2,6]],[[638,-1717,-2,6,1,6,-3,8,-1,10,-1,-1,-2,-7,2,-8,2,-4,-1,-9,1,-2,4,1]],[[-26,1410,-7,17,-6,19,-5,7,-5,5,-6,2,-6,16,-5,3,-1,-9,-7,2,-6,9,-11,6,0,6,-4,0,-2,7,-2,-3,-4,11,-3,-1,-1,-7,3,-2,1,-9,2,-10,6,-8,6,-5,8,-6,5,-13,-3,-8,-3,-6,-8,1,-3,-8,1,-5,1,-11,8,-9,2,-10,-3,-2,0,-13,8,4,3,7,11,-3,8,-5,9,-19,0,-8,10,-15,-5,-3,-1,-4,4,-2,4,0,5,-8,3,11,0,7,3,-1,0,-15,6,-4,2,-9,5,-4,2,14,3,5,-4,16,-4,1,-16,3,-6,11,11,8,6,11,0,9,-4,9,-3,7,-2,11]],[[-37,1526,-3,4,-5,1,-3,-3,6,-2,4,-2,3,-4,5,-6,3,-7,2,2,-3,6,-2,3,-2,4,-5,4]],[[-58,1513,-3,-5,-2,-6,0,-5,3,-8,3,-6,3,1,-2,9,1,5,5,2,0,1,-5,1,0,6,4,3,3,5,6,-1,1,6,-2,2,-6,0,-6,-3,-1,-5,-2,-2]],[[-53,1548,-3,3,-6,4,-3,5,-3,-1,-1,-3,4,-4,6,-5,8,-2,1,2,-3,1]],[[-94,1251,-7,-7,-3,-8,2,-1,3,1,6,4,4,10,2,1,3,8,0,7,1,4,-1,3,-3,-3,-4,-11,-3,-8]],[[-69,1342,8,-1,3,2,4,2,-3,2,-5,0,-7,-5]],[[54,1155,7,7,8,5,0,4,-5,5,-4,1,-3,6,-3,9,-4,-1,0,-7,-5,2,-4,-7,-9,-6,-9,7,-5,-1,-9,11,-1,-12,-7,-3,-9,0,-7,-9,-10,-1,-15,-4,3,-1,-4,-11,6,-4,1,-7,3,-5,-4,-12,5,-4,0,-7,1,-8,13,-1,3,-5,8,-5,9,-1,9,1,7,6,-3,7,2,8,8,2,2,4,2,12,8,7,6,5,4,4,5,9]],[[-28,1294,-3,11,-8,3,5,-8,0,-8,0,-6,0,-7,6,2,0,13]],[[-38,1269,2,-7,4,-2,1,10,-4,2,-3,-3]],[[22,1279,-6,1,-1,6,-4,1,-8,-1,1,-5,-7,-1,-5,4,-1,-3,6,-4,13,-3,8,2,4,3]],[[9,1229,0,12,7,10,-2,1,-10,-8,-2,-7,2,-10,0,-16,-2,-9,-7,-2,-9,9,4,6,4,18,-5,0,2,-5,-6,-4,-4,-9,-13,10,-3,-2,-12,9,-6,0,-3,-6,3,-4,8,5,-4,-10,3,-2,4,1,6,-7,10,1,-3,-7,-12,1,-14,0,-2,-6,3,-4,9,3,10,-2,0,-4,7,-3,7,4,7,1,16,5,4,2,7,9,-3,8,-1,12]],[[-103,1203,7,-13,2,9,-3,5,-3,4,-2,-1,-1,-4]],[[-85,1213,0,7,4,9,-6,-1,-2,-15,1,-14,4,0,2,8,-3,6]],[[-84,1183,1,6,-4,2,-2,-11,-1,-7,0,-6,5,4,1,5,3,3,-3,4]],[[-64,1085,-4,1,-1,19,4,3,-4,18,-7,4,-2,15,-6,12,-4,-11,5,-11,-1,-9,1,-11,2,-9,4,-12,1,-7,-2,-4,4,-18,5,-2,0,-9,10,7,-1,12,-3,8,-1,4]],[[-11,1044,-7,1,-5,4,-1,7,-7,5,-12,-2,-16,-1,0,-11,9,-8,8,-13,6,-4,8,-8,7,-5,14,-8,9,-8,8,-3,8,-4,7,-9,8,-5,6,-8,11,-10,5,-1,-1,6,-2,16,-9,9,-7,7,-4,6,-11,9,0,11,-7,8,-8,6,-5,7,-8,-4,-4,6,0,4]],[[-526,-686,-5,3,-7,5,-7,13,-2,14,-5,-4,0,-10,3,-5,-4,-3,-3,-8,0,-5,1,-6,3,-8,1,-10,6,-13,5,-10,12,-14,-2,9,-7,14,-4,13,5,5,7,3,4,10,-1,7]],[[180,-717,2,-7,-1,-4,1,-7,-2,-4,3,-6,4,1,-2,10,-1,7,3,4,4,-5,4,0,1,-6,3,2,0,6,-2,9,2,1,0,8,-3,6,0,2,-3,2,0,6,-3,-1,0,5,-4,5,-4,-4,2,-5,0,-4,0,-4,-2,-1,0,-4,2,-2,-1,-3,-7,-4,2,-3,2,0]],[[810,938,3,21,-6,20,-9,23,-9,-3,-1,-21,2,-28,4,-17,7,-8,2,-13,7,26]],[[793,1028,-6,26,-4,-3,-4,-57,13,19,1,8,0,7]],[[761,1388,0,27,-5,36,-8,-8,0,-37,-2,-16,7,-20,6,5,2,13]],[[753,1482,-2,25,-4,-11,1,-16,4,-19,3,3,-2,18]],[[734,1399,4,9,1,13,-4,14,-3,1,0,-15,1,-21,1,-1]],[[806,448,2,20,0,15,-3,2,3,6,1,9,-2,15,-2,-4,-1,-13,-1,-9,-1,-1,-2,-12,2,-11,4,6,0,-23]],[[738,535,8,24,5,-3,5,23,7,33,1,33,4,17,1,20,-4,7,-3,-7,-5,-36,-4,-30,-10,-31,-10,-15,-9,-16,-9,2,-8,19,-1,-6,2,-32,4,-3,3,-18,5,-1,2,10,6,-1,8,20,2,-9]],[[537,1429,-10,4,-9,-1,-11,4,-17,11,3,-15,-14,-6,-11,9,-7,0,6,-8,-7,-6,8,-2,10,1,11,-1,7,2,14,1,9,-6,14,1,5,9,4,-4,2,5,-7,2]],[[715,-1800,1,1,0,9,-3,14,-2,-1,-2,-10,-1,-13,0,3589,3,-2,4,-3587]],[[268,-790,1,5,-1,7,-2,0,-2,-11,4,-1]],[[270,-778,-4,8,-7,-2,1,-2,5,1,4,-5,1,0]],[[252,-782,0,3,-9,4,-5,0,-1,-3,6,-2,3,-4,6,2]],[[-518,-612,5,12,-2,8,4,7,-4,8,-4,-3,-3,-14,4,-4,-5,-9,5,-5]],[[797,151,3,4,1,15,-4,13,-7,32,-4,-25,-8,-5,-2,-9,-8,-5,0,-12,6,-21,3,9,3,-15,9,-20,8,-8,3,28,-3,5,0,14]],[[801,274,-6,-15,-1,-29,2,-29,2,-2,1,-14,4,-11,3,31,-2,14,3,10,-3,25,-3,20]],[[779,247,-5,-22,3,-18,2,7,4,-6,2,21,-4,4,-2,14]],[[826,-468,6,34,0,35,3,13,1,35,-1,80,-8,63,-4,-19,0,-38,-1,-54,-2,5,1,35,-3,31,3,19,-4,8,-5,-11,3,26,4,48,-2,30,-4,6,-7,-41,-3,-5,-1,-32,-1,23,-7,-12,-6,-8,-12,0,-6,12,-1,-15,-3,-17,-5,19,-9,2,0,-11,-9,13,-1,-22,-4,12,-3,-4,-2,-14,0,-14,-7,13,-4,0,4,-20,-3,-5,-2,14,-6,13,-8,3,-2,-17,4,-8,5,-12,-6,3,-6,-12,0,27,-1,14,-8,-27,-8,-27,-4,-30,0,-11,-4,-10,-10,-14,-7,-22,-1,-6,-2,-14,-2,-14,-7,-9,-7,0,-6,-5,-8,-16,-8,4,-8,-5,-10,-5,-1,-14,9,-15,0,-20,5,-9,10,-7,12,-17,7,-5,9,-2,9,-14,7,4,4,-7,12,10,3,15,4,4,8,2,-3,-11,-2,-6,-1,-9,3,-12,7,-1,5,4,0,10,-2,20,6,-17,3,-9,-1,-10,3,-8,9,11,4,-6,7,-8,10,-12,4,-13,4,0,6,-27,1,-21,-1,-27,0,-24,3,-12,6,-17,3,26,1,20,2,-42,4,-23,4,1,5,38,5,37,4,4,3,-27,4,9,7,34,1,15,5,-4,2,23,2,31,0,31,-3,11,5,26,-3,24,-1,14,-3,21,5,-24,4,1]],[[-486,689,-3,7,-2,9,-2,1,-4,-3,-1,-16,6,0,4,2,2,0]],[[426,87,4,7,-8,2,-8,-4,2,-4,7,-3,3,2]],[[185,-663,-1,5,-2,2,-2,-2,0,-8,-1,-6,5,0,1,1,0,8]],[[185,-776,-1,7,-2,5,-3,2,0,-7,-2,-3,2,-6,3,-5,3,1,0,4,0,2]],[[232,-823,-1,9,0,8,-3,9,-4,4,1,10,-2,3,-6,9,-5,6,0,3,-2,6,-3,-1,0,8,-4,7,-2,-1,-2,-7,0,-6,1,-7,-1,-15,5,7,3,-4,0,-6,3,-4,6,-2,0,-6,2,-9,2,-3,2,-13,2,-4,2,4,1,-10,-5,-7,0,-4,-3,-2,-1,-4,1,-5,3,6,4,2,2,4,2,5,1,8,1,2]],[[-125,495,-4,3,-7,3,-12,1,-4,3,-5,-1,-3,-2,6,-3,-3,-2,-8,2,-4,-1,-2,-3,-9,-1,-11,-4,-14,-5,-19,-6,-14,-4,-11,-4,-3,-8,-4,-9,3,-6,3,-8,5,-2,9,-1,8,-4,7,0,8,1,1,5,4,0,7,5,7,1,4,-3,7,-2,9,0,5,3,7,1,0,5,2,6,2,4,0,4,6,6,6,8,5,3,4,-1,-1,4,7,5,6,1,5,3,-5,3]],[[-159,1672,-6,6,-1,-3,4,-3,3,0]],[[-157,1668,3,-1,8,-1,-3,5,-8,2,1,-3,-1,-2]],[[353,263,-3,-1,-1,-15,2,0,2,-12,4,2,-3,5,0,8,0,8,-2,-1,1,6]],[[539,-62,-7,2,-9,-8,-6,-18,1,-14,11,8,10,-5,8,14,4,7,1,9,-6,10,-7,-5]],[[-211,1658,-6,8,-5,5,-2,-4,3,-5,4,-7,6,-7,7,-6,3,-2,0,5,-4,5,-3,5,-3,3]],[[-105,1621,-3,3,0,-7,6,-4,-2,6,-1,2]],[[-96,1617,-2,-2,9,-7,6,-2,0,3,-8,4,-5,4]],[[-99,1609,0,-4,1,-6,2,-3,4,1,-2,7,-2,3,-3,2]],[[-80,1596,-3,3,-2,0,4,-8,3,-5,4,-4,1,2,-3,4,-4,8]],[[-70,1571,-3,4,-1,-2,2,-4,4,-4,2,0,-4,6]],[[-401,1769,-5,-4,-7,-5,-4,-8,3,-1,1,-4,8,5,6,-3,4,-11,4,1,3,7,8,1,6,0,7,-4,2,0,4,-5,9,-7,7,-5,0,4,-5,6,-3,7,-9,3,-10,7,7,1,-3,4,-8,2,-3,8,-1,6,4,6,-1,5,-9,-2,-6,-3,1,-8,-3,-3,-5,1,-2,-1]],[[-436,1697,6,8,5,6,7,5,3,4,5,1,5,7,-4,2,-4,2,4,8,-4,2,-5,0,-4,-3,-8,-7,-4,-5,-5,4,0,-8,-3,-8,-7,-3,-10,-6,-5,-8,-2,-5,0,-9,3,-6,1,-11,3,-2,8,5,10,13,2,6,3,8]],[[-408,1477,-1,6,-12,1,-3,-4,-8,-1,3,-3,-7,-7,0,-2,1,-7,8,-6,7,-1,8,-6,5,0,-1,7,-3,10,1,5,2,8]],[[-322,1261,-5,-10,-3,-9,-5,-2,-4,-3,0,-9,-1,-6,2,-9,-1,-7,-1,-7,-5,-6,0,-3,-2,-5,-4,-5,1,-7,0,-7,6,-10,2,-6,6,0,1,5,2,2,4,0,7,1,6,-1,10,-5,6,-2,5,0,7,-4,3,0,4,-4,8,-2,8,-5,4,-2,-4,5,9,-4,-3,5,-4,3,5,0,8,-5,3,-1,3,-2,6,1,2,2,5,1,6,-1,7,4,-7,1,7,4,3,9,4,4,4,8,1,5,-1,2,3,8,1,6,3,2,0,3,0,5,3,11,5,5,5,3,5,5,4,1,5,0,9,7,-9,4,2,5,5,-4,5,3,-2,5,7,1,5,5,4,3,2,5,3,0,-1,4,2,0,1,5,2,5,-5,7,-6,6,0,6,-1,6,6,-2,8,5,2,4,3,-1,6,4,3,6,-1,5,2,9,5,0,3,-8,2,6,-3,6,-4,6,-2,8,1,3,-3,6,2,6,0,4,1,2,-5,5,-5,-3,-4,-4,0,-3,-4,1,-5,-3,-5,-4,-3,1,-6,8,-3,8,-3,5,-6,7,0,3,-3,5,-3,2,-3,9,3,7,6,2,4,2,6,1,8,3,4,-1,3,0,6,-1,8,2,2,1,3,-1,5,2,6,2,3,0,3,4,-5,3,-6,1,-1,2,-4,1,-5,3,-6,1,-4,0,-7,3,3,7,-4,3,-4,5,-4,-1,-9,2,-5,1,-1,3,-9,3,-5,-1,-7,3,-5,11,-5,7,-4,6,-2,-1,-7,6,-10,4,2,4,-5,4,2,2,-11,2,-6,7,-4,5,-8,8,-8,2,-5,1,-7,-1,-8,5,-9,-1,-5,-2,-9,-2,-5,0,-7,-2,-10,-5,-4,-7,-8,-4,-5,-3,-9,-3,-5,-4,-7,-2,-7,-2,-3,1,-4,-6,0,-11,-4,-9,-4,-5,-4,-6,4,-8,2,-6,5,1,-2,-5,-7,-9,3,-9,1,-5,1,-6,3,-10,6,-6,8,-2,5,-2,4,-5,1,-10,5,3,7,-2,-7,-5,-2,-9,6,6,6,1,5,4,7,-1,-9,-8,-3,-6,-8,-4,4,-8,6,0,7,-6,4,-5,2,2,6,-13,0,-7,5,-10,-1,-18,-3,-13,-4,-11,1,-10]],[[75,818,-10,-2,-3,-4,-2,-9,8,-4,14,-2,16,4,-5,7,-7,5,-11,5]],[[182,1095,3,-8,9,-1,4,5,3,11,0,6,-4,2,-4,-4,-6,-3,-5,-8]],[[244,1218,-16,-6,-8,-5,8,-5,8,-1,9,6,8,8,-3,5,-6,-2]],[[381,148,1,7,-8,-3,-3,1,-5,-2,4,-8,1,-5,5,-14,5,2,-1,11,1,11]],[[409,87,3,5,-7,6,-13,-1,0,-5,-3,-4,3,-4,12,0,6,-2,-1,5]],[[561,124,-5,3,-8,-6,6,-11,4,-1,3,15]],[[534,-31,0,0,6,2,6,-7,0,0,2,-12,3,-3,4,4,3,-3,-5,-6,10,0,5,-6,10,4,8,8,0,8,0,12,-10,-11,1,10,0,11,-8,-2,-9,-9,-1,10,-1,1,-12,9,-1,7,-12,6,-4,3,-2,12,-6,-1,-3,-6,-5,4,-5,-9,0,-13,-3,-17,2,-5,-5,-6,1,-9,-3,-7,2,-6,10,15,2,9,0,0,2,-16,4,-3,3,11,5,-6,7,2,-1,15]],[[665,-145,-7,-2,-7,11,-7,-13,-7,-29,-2,-9,1,-13,4,-28,4,10,5,-22,2,18,3,0,2,-21,7,6,1,16,-7,15,6,15,-3,13,5,16,0,17]],[[127,1208,8,-5,-1,9,-3,3,-9,-2,5,-5]],[[100,1226,3,2,6,1,0,6,-6,-2,9,8,-9,-1,-4,-4,-6,-3,-3,-3,7,-6,3,2]],[[84,1264,-6,1,-6,0,-9,-3,10,-4,-5,-4,-8,3,-4,-3,6,-12,7,-3,5,3,4,-6,-4,-3,1,-5,-6,-7,3,-2,8,4,3,6,4,6,-5,3,3,8,5,2,0,7,8,-1,-5,8,-5,1,-4,1]],[[93,1185,-9,-13,7,5,6,7,7,6,10,5,-8,2,-6,-7,-7,-5]],[[182,1223,-4,-1,-7,3,-8,-2,-4,-6,-8,-2,-8,2,-1,6,1,4,-5,13,-6,-1,-2,3,-5,-1,5,-8,6,-4,-4,-2,6,-7,-2,-9,3,-5,4,1,2,3,3,-3,-4,-1,6,-5,4,-2,10,0,-4,4,16,1,9,3,0,6,-3,6,3,3,-3,1]],[[114,1220,5,-1,-3,6,0,6,-4,0,-5,-5,-3,-6,5,0,5,0]],[[122,1255,-12,3,3,-8,-3,0,-6,3,-3,-5,7,0,1,-3,6,-2,-1,6,4,0,8,-6,-1,9,-3,3]],[[392,1419,-10,-9,-11,0,-8,-4,-5,2,-7,-5,-4,-13,-1,-18,-11,-14,3,-7,8,0,-2,-18,-5,-11,0,-12,-8,10,-16,-7,-5,-6,4,-5,9,2,3,-6,7,-4,3,10,6,5,6,10,6,7,3,20,-2,11,18,10,-5,7,10,15,4,5,12,7,12,-2,6,4,2,11,-14,5,-8,0]],[[440,1446,4,7,-11,2,-3,-14,-10,-9,7,-16,-11,-5,0,-11,10,-2,7,5,1,11,14,3,8,3,-11,11,-3,8,-2,7]],[[335,1324,6,5,-2,6,5,4,-3,7,-3,2,-6,-6,3,-4,-2,-5,-6,-3,3,-6,5,0]],[[-780,-487,0,5,2,15,-2,15,-5,13,-6,4,-4,1,-5,1,-3,-16,-3,-16,-2,-19,-2,-21,0,-24,4,-13,4,2,3,21,3,9,4,6,4,5,3,6,5,6]],[[-803,-663,0,23,-1,21,4,8,4,5,-4,10,-5,-3,-5,-3,1,-21,0,-22,3,-12,1,0,2,-6]],[[-713,-739,1,7,0,11,5,3,4,1,8,0,5,5,1,9,-4,6,-3,2,-5,4,-4,4,-5,2,-4,2,-4,-2,-4,-3,-1,-12,-2,-11,0,-13,4,5,-1,-12,-2,-11,3,-8,4,0,4,11]],[[-719,-1023,2,6,-2,13,0,14,-2,11,1,11,-5,6,1,-8,-1,-12,1,-12,-1,-14,2,-10,4,-5]],[[-737,-1226,4,2,-2,12,-2,13,2,12,-3,-6,-3,-9,1,-14,3,-10]],[[-735,-1273,3,7,-3,10,-4,16,1,-6,1,-13,2,-14]],[[-786,-1637,4,6,-2,19,-3,10,-3,7,-5,3,-1,-19,3,-13,4,-6,0,-1,3,-6]],[[-847,-1800,0,1,6,8,-4,18,1,2,3,10,0,2,0,1,-4,14,4,13,0,2,2,29,-2,10,-1,5,-4,15,-2,28,-3,23,-3,38,3,29,-2,43,-3,24,3,26,3,28,4,2,1,-39,2,-33,4,-8,2,-27,5,2,4,4,3,3,5,-2,2,-16,4,-8,3,-15,-1,24,2,23,-3,15,3,17,3,17,4,8,4,-4,2,-13,3,-14,1,-21,1,-18,1,-19,4,-7,3,-13,4,-8,11,-3,-1,5,-3,9,1,17,1,16,-4,8,1,16,2,13,3,13,3,11,1,15,4,0,4,-4,3,3,2,13,-3,6,2,15,2,12,0,14,1,13,3,14,2,11,2,12,-1,8,0,7,1,14,-2,14,0,13,2,14,-1,13,-1,15,0,14,0,14,0,15,0,14,3,10,2,12,-2,13,1,12,4,11,-3,6,-4,4,-3,6,3,10,-4,12,-1,14,-3,11,1,15,2,12,-1,15,-1,14,-2,14,4,5,4,-7,3,-5,1,-12,4,-6,3,-2,8,-4,-2,8,0,13,0,13,-1,12,-3,10,-4,4,0,14,1,13,2,13,1,13,-2,10,1,13,7,9,-4,8,-2,11,1,13,-4,8,0,13,-1,12,-3,12,4,8,4,4,-4,10,1,14,-2,10,-4,7,1,13,2,10,3,11,1,12,2,14,1,13,2,9,3,6,5,3,4,-2,4,-3,3,-3,4,-3,4,-3,4,0,4,1,3,4,5,4,3,2,5,-2,4,-1,4,4,3,6,4,6,3,7,3,8,4,4,3,6,3,6,0,10,3,6,2,7,1,8,3,7,3,6,1,8,-2,6,-4,-4,-3,-10,-2,-4,2,-8,-1,-8,-2,-7,-3,-7,-3,-5,-4,-1,-4,0,-3,5,-2,-7,-1,-9,-3,-6,-3,-6,-5,-6,-4,-2,-4,4,-3,5,-2,8,-3,8,-4,4,-4,2,-4,3,-3,5,-4,3,-9,1,-4,3,-4,1,-4,3,-5,-1,-4,-6,-3,-6,-2,-13,-3,-4,-4,-7,-3,-15,-2,-13,-2,-12,-2,-14,-4,-8,-1,-16,1,-18,-1,-16,0,-16,-4,3,-2,15,-3,11,-3,6,-3,-11,1,-17,-3,-14,-4,-1,-4,0,-3,12,-4,2,-4,12,-1,22,-3,18,-3,14,-3,18,-2,25,-2,24,-3,17,-4,19,-4,10,-4,5,3,12,3,16,3,18,3,21,3,17,0,25,-1,25,-3,20,4,6,3,14,1,26,2,19,2,19,1,21,2,22,3,15,3,-7,4,-4,3,0,0,-19,-2,-21,0,-19,4,-3,8,1,2,5,2,14,2,17,3,12,3,12,4,9,2,14,1,13,1,7,1,16,1,14,2,13,2,12,3,11,3,14,3,9,3,9,4,3,2,-11,4,4,4,7,1,10,3,11,3,10,4,8,5,5,2,7,0,12,-4,5,0,12,4,0,4,5,-1,11,-4,3,-1,12,2,13,1,12,0,11,-4,5,3,11,2,10,1,11,1,11,3,11,1,11,3,8,3,6,-2,8,1,10,-5,8,-3,5,2,12,4,4,2,10,0,13,-4,4,4,8,1,11,0,12,0,11,-1,11,-1,11,-3,4,-3,7,2,11,0,11,0,12,0,11,2,10,1,11,3,8,1,10,1,10,3,8,6,5,3,6,-2,10,-3,4,-2,9,0,10,-3,7,-3,7,3,11,4,3,2,9,3,11,1,9,2,12,2,8,3,8,2,8,-1,9,3,9,3,7,0,9,2,9,4,1,3,9,1,8,2,10,1,9,-1,9,-1,10,-2,8,-5,1,-3,8,-3,6,-1,12,-3,7,-3,8,0,10,2,8,4,9,-2,9,-1,10,-2,9,0,10,0,10,-11,8,-2,0,-5,-1,-2,-10,-4,-8,-4,1,0,12,-4,-2,-3,-5,-5,-5,-3,8,-1,12,2,11,4,6,4,3,3,6,3,6,3,2,5,6,1,6,1,11,1,10,1,10,4,5,4,3,4,7,2,10,2,8,4,6,1,6,2,7,-1,10,1,9,1,10,0,11,2,7,7,5,-3,4,-5,4,-1,9,-1,9,1,10,-1,10,0,9,1,7,-1,8,-2,8,2,9,0,11,1,9,-1,10,3,7,3,5,3,7,7,12,-1,7,-3,7,-3,7,-6,13,-1,10,0,9,2,11,1,10,3,9,3,6,0,12,2,7,-2,8,-3,5,-3,7,0,11,-2,7,-3,12,-1,12,1,11,3,8,3,6,1,9,-1,9,-1,11,1,9,0,9,-1,9,-1,9,2,9,2,11,0,10,0,11,1,10,1,9,5,2,4,1,-3,6,-4,2,-4,3,-4,4,-2,9,1,11,0,13,1,9,0,13,0,10,0,13,-1,11,-3,7,-4,-2,-3,6,-2,11,-3,11,-2,13,-1,14,-2,10,0,11,3,7,-2,9,-3,7,-3,9,-1,12,-1,12,-4,5,-2,11,-4,8,-1,11,0,11,-1,11,0,12,0,12,-2,11,-2,11,-2,10,-3,7,-4,-1,-3,-5,-5,-5,-3,-3,-5,-5,-1,-13,-4,-6,-2,-13,-4,-5,-3,-6,-4,-8,-4,-4,-3,-2,-5,-1,-4,0,-4,6,-3,2,-4,4,-1,19,-5,4,-1,-18,-2,-15,-1,-19,-5,-9,-5,-2,-4,-4,-3,-5,-4,13,-4,5,-4,9,-3,12,-3,14,-3,15,-3,23,-5,5,-2,29,-1,2,-3,7,2,28,-3,23,-2,17,0,-3600]],[[351,327,0,1,3,1,0,8,3,9,-5,-7,-1,1,-1,0,-4,-10,1,-5,4,-2,0,4]],[[108,-617,1,6,0,2,-8,0,-1,-9,1,-2,3,3,4,0]]],"borders":[[-103,403,-6,-8,-4,-11,0,-6,-3,-3,0,-7,-1,-3,3,-12,-1,-7,13,-3,5,-4,3,-2,2,-9,3,-6,1,-6,2,-4,3,-5,12,-5,6,-6,6,-2,5,1,9,-2,0,5,4,3,5,4,2,3,4,-1,2,-2,4,0,1,3,6,0,6,-4,1,4,0,11,0,20,-1,2,-20,36,-6,1,-10,14],[214,-170,0,0,1,22,4,2,4,4,14,3,11,14,12,5,1,3,8,3,1,9,-1,3,0,5,2,3,0,6,6,0,0,1,-1,0,-2,0,-15,0,0,-33,-25,1,-1,-10,-5,-2,-15,2,0,-39,-3,-3],[548,-1305,5,5,6,0,7,-17,11,-10,7,-7,5,-9,4,-6,5,-6,-3,-10,-6,-10,7,-8,4,-7,3,-10,0,-10,57,0,37,0],[451,-671,6,-7,14,0,3,-4,-2,-7,2,-3,-7,-8,-8,-3,-4,-4,-2,-4,0,-3,-3,-1,0,-18,0,-16,-2,-4,-7,-11,-1,-1,-4,-3,0,-9,0,-10,-1,-5,-2,2,-3,1,-1,0,-5,-13,-2,-11,-5,-11,0,-3,1,-3,2,-1,1,0,3,2,6,5,6,3,8,-2,9,-3,5,-10,2,1,1,-1,0,-3,2,-2,2,0,-1,-2,0,-3,1,1,1,-3,3,-1,3,-8,4,-8,3,-9,4,-10,-3,-9,0,-3,3,-12,-2,-8,4,-10,1,-10,1,-7,1,-3,6,-2,0,-4,-4,0,0,-20,0,-35,0,-34,0,-29,0,-31,0,-29,0,-30,0,-10,0,-30,0,-28],[259,-971,-1,-4,3,-7,3,-8,4,-3,7,-2,6,-6,6,-4,7,-5,4,-7,0,-8,-8,-6,3,-8,3,-6,5,-2,5,-3,5,-6,3,-5,4,-4,0,-17,-5,0,0,-8,0,-20,7,-23,5,-15,2,1,-1,-13,-1,-11],[464,491,2,-5,5,1,6,-6,0,-8,7,-8,8,5,2,-2,11,8,-6,10,7,1,11,21,0,15,-7,22,-4,12,4,11,1,16,-6,12,3,3,0,14,5,3,7,-16,4,9,3,-2,3,10,7,-7,3,4,4,38,2,5,4,25,4,9,-2,18,-11,3,3,10,-4,13,-5,-1,0,10,10,25,-3,-4,-8,13,-25,22,5,6,-6,13,3,15,-2,5,-6,5,-2,7,-4,4,1,13,-6,6,-7,-8,0,-8,-10,-1,-5,-5,3,-20,-18,-7,-2,-6,-4,-19,-17,9,-3,-7,-5,1,1,-7,4,-5,1,-14,0,-17,-1,-4,4,-14,-2,-6,-6,-1,3,-17,-1,-6,-4,-2,-2,-6,-7,-13,-7,-5,0,-3,4,-3,1,-13,8,-2,0,-5,10,1,7,-12,-1,-17,-1,-12,9,-9,4,-9,7,-15,1,-2,-6,-26,-37,1,0,-5,7,-7,3,-7,-2,-12,-3,-4],[423,710,-1,3,-7,-9,-4,8,3,7,-5,12,-8,-13,1,-8,0,-4,3,-1,5,2,-3,-14,-6,-3,-6,-5,1,-8,-5,-3,-2,8,-7,2,-11,-6,3,-7,0,-6,6,0,4,-13,5,-10,5,-7,7,-11,10,-5,2,-4,-1,-10,2,-4,8,-1,6,-14,-6,-8,-4,-9,-5,2,0,-11],[-91,1410,32,0,33,0],[-89,1250,-2,1,-3,0],[20,1097,-7,1,-5,7,2,7,-1,6,5,6,1,5,-3,9,2,8,14,5,4,4,11,4,0,11,-2,9],[-549,-670,0,-6,0,-10,23,0],[-523,-686,2,-9,1,-24,6,-4,7,0,0,-7,3,-3,11,-1,4,8,7,3,5,-1,8,5,13,3,6,-1,2,5,4,-1,2,-5,4,3,4,-4,11,-3,2,5,13,-2,10,2,9,3,3,6,10,-3,9,0,7,7,8,0,10,6,9,0,2,-3,17,-4,11,6,9,-1,9,3,10,7,6,7,4,-3,3,2,17,0,5,11,10,3,3,-1,9,8,-3,13,-7,6,8,4,0,12,-2,1,-17,19,-1,8,-8,12,-4,10,-4,2,-15,-10,-3,10,-1,11,1,8,8,9,9,2,2,5,-6,5,-8,0,-6,-9,-4,-7,-10,-11,-13,-13,-8,-3,-10,-2,-10,0,-3,-3,-6,0],[-183,-704,2,5,5,3,-7,5,-7,1,-4,6,-10,-4,-11,6,-14,4,2,7],[-83,307,1,-4,-2,-13,-1,-3,-7,-3,-4,3,-12,-2,-10,-1,-2,2,-4,7,2,3,-11,1,1,-8,5,-4,4,-3,2,-8,5,-2,-3,-6,1,-8,5,-4,1,-6,-1,-5,3,0,1,-4,0,-4,-1,-7,0,-4,-1,-2,12,0,4,-3,6,-1,6,1,4,-2,6,0,0,-12,4,1,0,-5,-2,-1,-1,-6,-5,-2,-3,-2,2,-5,-2,-4,-1,-6,6,-4,3,-2,6,-3,7,-3,0,-29,-1,-4,0,-3,-1,-4],[-58,122,1,2,5,1,2,1,2,4,-1,3,4,3,0,5,-3,1,-2,4,7,6,4,6,4,2,8,0,10,4,5,5,5,6,3,1,3,1,4,1,6,0,8,1,7,2,5,3,6,1,7,0,5,4,3,6,-3,8,-4,6,-1,8,-2,7,6,3,1,1,-1,5,5,11,-2,4,0,3,3,2,1,4,-1,7,-1,6,1,4,-8,6,-1,4,2,3,-1,5,2,5,-4,3,-7,8,-12,0,-1,4,-4,-3,-2,-4,-5,-4,-5,-2,-8,-1,-4,-2,-7,0,-3,-3,-6,0,-1,-2,-5,-1,-5,3,-12,0],[-17,416,8,-6,37,0,11,9,3,2,1,7,7,9,0,13,30,28,8,7,7,4,5,0,10,0,4,0,0,0],[-10,339,11,0,4,3,7,5,7,3,12,-4,5,-1,7,-5,5,6,7,7,-2,5,-5,0,-4,4,0,7,-8,12,0,3,0,3,-1,2,-1,7,4,3,5,9,-4,4,0,7],[180,384,-6,-5,-1,-7,-3,-3,-7,-1,-15,-5,-4,1,-8,-1,-10,-4,-5,-6,-8,-5,-4,-1,-3,-4,-10,-3,-9,0,8,0,0,-2,5,0,3,-1,4,-5,7,-1,8,1,0,-5,-2,0,0,-6,-3,2,-6,1,-6,-5,-7,-5,-1,-6,6,-8,-2,-4,-3,-1,-2,-5,-2,0,0,-10,2,-2,0,-7,-1,-3,1,-3,5,-5,3,-2,-1,-7,-5,-3,-9,-3,-2,-3,-1,-3,-4,7,5,-8,3,-3,3,-1,4,2,4,0,6,-6,4,-1,3,0,3,-4,6,0,3,-2,0,-4,4,1,4,3,4,-1,3,3,2,-2,6,3,8,4,-1,9,40,-1,4,0,0,12,20,0,0,40,0,39,0,40],[111,229,-1,-7,-4,-5,-11,-7,-5,-9,1,-10,-1,-3,-4,1,-3,-5,-4,-4,-4,-13,2,-2,1,-2,-3,-2,-1,-8,3,1,7,-3,4,-1,2,-5,5,-5,5,2,-1,4,1,3,0,6,9,-6,7,1,6,-1,7,-4,4,1,1,-6,6,0,4,-5,13,5,9,12,13,1,21,4,4,2,3,-4,3,0,3,-4,16,-2,5,10,-19,39,-19,40],[197,-717,-5,1,-4,-1,-2,-2,-3,2,-3,0],[552,213,-2,10,-1,5,-3,-2,-3,1,0,-18,1,-12],[422,1308,2,-2,5,0,0,5,12,2,9,-3,3,9,-2,12,10,7,11,3,4,4,9,5,-3,-16,-4,-9,0,-15,9,-4,7,-12,4,-17,9,-4,7,-4,4,-3,10,-7,4,-8,3,-15,-1,-14,-1,-12,-5,-8,-3,5,-5,0,-4,-5,-10,-9,-5,0,-6,-14,4,-12,-1,-12,3,-5,1,-6,-7,-15,-1,-13,-3,-9,2,-13,0,-9,5,-6,5,-10,1,-10,-1,-13,-2,-9,4,-14,8,-2,2,-12,1,-9,4,-11,-10,-11,-6,4,-7,-9,3,-15,0,-10,5,-7,0,-10,3,-9,-5,-15,-8,-19,-2,-10,-1,-4],[418,486,-4,-6,-2,-2,0,-4,6,-7,1,-3,2,-6,4,-3,2,-10,-1,-6,1,-1,5,-14,2,-15,2,-8,-2,-1],[471,382,4,1,3,5,1,9,3,2,6,-2,5,4,3,0,3,-15,0,-6,5,-6,-2,-8,4,-12,2,0,4,-4,1,-8,3,-1,2,3,5,-6,-1,-11,1,-3,-2,-2,0,-4,6,-3,4,-2,1,2,-1,8,3,4,2,-3,2,-7,2,1,2,-4,6,-6,3,2,5,-1,2,-10,-1,-5,2,-2,3,-10,6,-3,4,-1,3,-5,3,4,9,-3,6,7,2,-1],[605,281,13,21,6,9,5,4,7,-15,6,4,7,-9,9,7,11,-11,8,9,7,-16,7,2,1,8,4,17],[460,334,2,3,-2,7,0,3,-2,2,-1,1],[691,286,7,4,4,-13,-4,-15,-7,-5,-5,-10,3,-10,-1,-13,6,-12,-3,-6,0,-6,-7,-1,2,-19,-6,-3,0,-9,-7,-7,-11,-10,-14,-15,-4,3,-4,-3,1,-10,-10,-7,-13,1,-5,6,-12,-3,-7,-8,-5,-5],[-286,163,5,5,-3,4,-4,2,-1,4,-1,7,0,5,5,9,37,0,-1,3,-10,6,-6,-1,-3,2,1,7,4,5,3,5,5,2,2,5,-1,4,-3,5,0,8,2,7,3,1,5,1,1,6,4,3,6,3,8,9,7,14,0,4,-2,5,1,4,-1,5,-14,5,-7,2,-11,-1,-3,0,1,-5,0,-3,-3,0,-4,-3,-3,0,-6,6,1,6,5,2,0,7],[-290,290,4,-5,-3,-4,-3,-6,-7,-5,-7,8,1,3,3,2,1,5,4,2,4,3,3,-3],[185,-883,0,-2,-6,-3,1,-2,0,-1,-2,0,0,-10,0,-9,-5,0,0,-5,-4,4,-2,4,-2,1,-1,2,-3,-1,0,-12,-8,-5,-2,1,-3,-1,-3,0],[-302,-576,1,6,-8,10,0,4,-6,10,-5,8,-7,6,-5,-4,-6,2],[-257,-546,5,2,6,1,6,0,2,-4,-2,-3,0,-4,4,-1,9,-1,3,-2,3,-7,-2,-4,2,-10,14,0,5,-3,2,3,6,-1,4,3,8,2,6,-2,3,-6,4,-1,6,2,0,-20,12,-3,0,2,5,0,2,-2,6,0,3,-6,0,-6,3,-4,2,-7,4,-4,1,-11,9,-11,7,1,4,-1,7,1,-1,-13,-4,-6,-4,-8,-3,-3,0,-5,0,-7,-1,-6,1,-4,15,0,-6,-8,0,-9,6,-4,0,-6,5,2,6,-6,9,-4,2,3,4,0,3,6,5,-1,4,2,4,1,7,12,2,8,1,1,0,9,27,5,5,0,6,-2,3,-4,7,0,2,5,-1,2,4,1,1,-6,6,0,0,19,3,4,-3,2,-6,2,2,2,-6,6,1,8,3,1,2,8,2,4,4,1,3,7,2,0,1,-9,6,-1,7,0,3,-4,0,2,-1,7,-2,8,2,3,2,7,3,11,4,4,3,-1,0,5,-2,2,-4,-1,-2,3,-4,3,-4,-3,-8,-2,-6,3,-4,1,-5,6,0,5,2,1,0,3,2,4,2,4,0,5,0,3,-1,5,2,1,2,-2,3,1,-1,4,1,5,-2,6,-2,4,3,3,-1,2,-2,2,0,5,4,3,7,4,10,5],[-202,-582,3,0,5,-9,1,-9,-3,-18,-9,-5,-6,0,-11,-4],[-176,-696,11,6,8,-4,4,2,3,-1,5,4,9,0,7,0,3,2,16,-8],[-34,-803,-4,1,-3,-3,-3,1,1,4,-2,4,-5,4,5,6,6,1,9,7,4,12,10,11,7,3,7,-2,1,3,-4,7,-5,3,-3,4,-10,6,-1,8,2,5,-1,4,0,6,-4,8,-10,-7,-1,3,-5,5],[-2,-754,3,-4,3,-5,-1,-3,1,-8,4,-3,0,-2,6,-10],[72,-779,5,1,-1,4,3,2,6,-3,2,1],[118,-713,-2,-7,-5,-2,-3,-4,-3,-3,-8,-1,-5,-3,-1,5,-5,1,-2,3,-4,0,-4,-1,-2,1,-1,2,-3,2,1,13,-1,6,-9,7,1,4,0,7,1,6,-2,4,-5,-2,-4,-2,-7,-1,-7,2,-3,3,-2,0,-5,-5,-2,4,-4,2,-9,3],[82,-830,2,1,2,1,2,-1,1,2,2,-2,4,0,1,4],[111,-857,1,1,-2,7,1,2,-1,3,-2,2,-1,3,2,2],[130,-873,0,3,3,1,0,2,5,-1,0,3,0,2,2,2,-2,3,2,1,1,2,3,3,2,1,0,0,2,2,0,1,-1,2,-1,2,1,2,0,2,2,4,1,1,0,4],[134,-878,4,1,1,-2,1,-2,-2,-4,2,0,1,-3,2,-3,1,-3,3,3,2,-1,2,0,2,5,4,5],[137,-901,2,0,2,4,1,2,2,-1,0,2],[178,-891,-8,0,-11,-1,0,3],[84,-598,-6,-8,-4,0,-4,3,-1,-2,-2,-7,-5,1,-2,-3,-8,7],[60,-571,-9,-2,-3,-6,-2,0,-5,-1,-8,4,0,3,-5,2,-9,6],[58,-540,-9,-5,-7,1,-6,4,-4,-2,-5,-1,-4,-2],[511,25,-3,2,0,4,-4,5,-5,7,1,5,-5,9,-1,2,1,3,-3,5,-2,14,-7,-5,-7,-1,-2,-3,1,-5,-2,1,-6,-8,-4,0,1,5,-4,3,-3,0,-4,3,-3,-4,-7,3,-2,6,-4,-2],[425,30,-2,-12,5,-11,-2,-4,4,-18,4,-4],[-221,294,5,-6,1,-8,6,-3,4,0,1,-4,11,-11,6,-3,2,-3,8,-3,-1,11,-2,3,1,3,6,6,8,9,1,3,4,1,4,6,1,8,-4,0,0,9,-2,4,-2,3,-1,4,-3,5,-13,0,-7,-1,-7,-1,-3,2,-6,-1,-1,-2,-7,-3,-12,-10],[-248,199,30,0,0,10,35,0,1,8,3,15,-4,4,4,6,0,3,2,6,0,2],[-173,117,2,5,2,6,-1,7,-4,6,0,1,1,41,-5,7,-1,24,4,18,2,8,-1,7,-2,4,-1,0],[161,-165,4,4,-1,5,2,5,0,5,-3,5,-3,7,-7,6,-7,6,-6,1,-6,2,-3,3,-3,1,-4,0,0,-2,1,-5,-1,-1,-1,-2,3,-7,0,-5,0,-18,-1,-3,0,-3,-1,-6],[132,-168,-1,9,2,2,0,2,2,4,-2,4,0,4,2,5,3,-2,-2,-4,0,-3,3,-4,0,-3,-3,-2,0,-11],[146,-122,2,4,6,1,0,4,-3,6,2,6,0,4,2,2,0,40,7,2,1,-2,43,-5,44,-5,0,16,-22,34,-22,33,-5,3,-2,6,-2,4,-6,1,1,11,-23,0,-7,-6,-6,-1,-2,-9,-1,-13,-3,-4,-1,-6,0,-7,2,-2,-1,-6,-4,-9,-4,-2,-4,-8,-3,-1,-2,-4,2,-5,-3,-3,-7,-1,-8,-8,-3,0,-4,-3,-6,1,-2,-4,-1,-2,4,-2,-1,-3,0,-2,-3,-1,0,-8,2,-3,-1,-1,3,-3,3,0,1,-1,-1,-2,3,0,3,2,4,-4,3,-1,2,-2,0,-2,-1,-3,-1,-3,-3,-3,1,-4,3,-3,0,-1,-1,-3,0,-2,3,0],[274,-87,-24,38],[61,19,7,-3,23,1,2,-2,5,-1,4,-3,3,-3,5,1,1,3,4,2,1,5,3,3,3,3,0,3,-5,8,-4,0,-6,2,-4,-2,-2,1,-7,-5,-3,-3,-6,-2,-6,0,-16,0],[129,145,-1,-3,-3,0,0,-2,11,-7,0,-2,-6,-8,3,-8,1,-5,-2,-3,1,-6,-4,-6,-1,-5,5,-12,-2,-5,0,-5,4,-4,4,-10,-2,-10,-2,-3,-5,-1,-4,-3,-9,-1],[119,22,7,0,3,-12,4,0,7,-6,4,-1,5,1],[192,43,4,14,20,29,19,34,-5,16,-5,5,4,8],[125,142,-4,4,-2,-1,-3,-1,-8,-8,-6,-3,-6,-1,-2,-2,-7,-2,-4,-6,-5,-1,-4,-3,-4,-1,-4,-6,5,-6,-1,-4,-5,-6,-1,-3,-9,-4,-7,-3],[74,153,-10,-5,-2,-3,-7,0,-5,1,-3,-1,-5,5,-3,0,-6,4,-3,5,-4,0,-3,1,-6,-1,3,-8,2,-8,1,-12,0,-1,-1,-6,1,-6,0,-5,0,-17],[59,11,4,-3,6,-2,5,-1,9,2,4,-2,8,-1,7,0,5,-4,3,0,0,9],[50,-29,4,1,9,-4,11,2,8,4,14,-2,8,-2,6,1,0,17,-1,4,2,4,-1,4],[104,-54,-2,4,-4,2,-2,5,3,3,0,5,-3,7],[44,-77,8,1,1,1,4,-1,4,-4,1,-3,3,-3,4,2,5,-1,3,1,0,1,4,1,2,-1,2,1,1,4,8,-3,4,-2,3,1,1,2],[77,-84,0,-3,-4,-2,0,-3,2,-2,4,1,6,-5,-1,-2,0,-2,-1,-3,4,0,3,-2,3,1,4,-2,3,-3,0,-8,-1,-3,-1,-2,-2,-2,-3,-1,-4,-5],[110,-151,5,4,0,3,2,3,0,2,1,2,3,-1,1,1,4,0],[68,-114,3,2,3,1,5,4,5,5],[35,185,1,-7,1,-7,-5,-6,-9,-5],[82,246,-4,5,-3,0,-5,7,-5,4,-6,3,-3,7,-4,2],[-48,130,4,-4,-2,-3,-4,-4],[-40,111,6,8,6,-4,3,3,1,7,5,1,-5,5,-1,9,5,3,7,1,7,-1,6,-5,12,5,2,-3,-1,-7,5,-3,5,1],[10,95,1,3,0,15,12,0],[-92,328,-5,4,-8,3,-3,-2,-8,-2,-8,2,-4,-3,-9,-3,-3,5,-8,-30,-7,1],[-175,232,6,-6,8,-7,32,0,0,21,3,-1,4,2,5,-2,5,1,3,-1],[-115,346,-8,-3,-13,3,0,3,-3,4,-7,4,-13,1,-2,-5,-7,-3,6,-6,7,-1,5,2,4,0,2,-4,-1,-3,5,-6],[-267,321,4,-1,5,-2],[-28,290,-1,6,6,3,-1,6],[331,351,0,4,2,1,0,2,-4,0,-2,-1,0,0,-3,-2,1,-3,-6,-2,-1,2,-2,-2,-2,-1,1,5,-4,0,-16,-5,3,-1,14,-5],[346,360,0,4,-4,2,-4,-5,-5,-3],[324,355,-6,0,-3,-1],[331,115,-7,-1,-3,-5,-3,-3,-4,-7,-4,2,-5,-1,-2,-5,18,-4,4,-7,2,0,6,-8,8,-1,6,6,8,3,9,-2,5,2],[277,-87,11,0,8,16,1,10,3,9,5,3,4,12,7,1,1,5,4,5,2,13,4,2,2,-3,10,-3,6,-1,7,-4],[303,95,-9,3,-4,1,-9,-2,-4,1,-6,-2,-6,1,-4,-4,-7,6,-5,0,-5,4,2,5,-5,8,-6,4],[327,357,-4,11,11,20,-12,4,-2,-2,-5,-20,-10,10,-2,-3,-3,-2,-1,-8,-4,-2,-3,-4,2,-11],[261,561,-4,2],[249,564,0,-5,-6,-1,-2,2,-2,-5,-4,0,-4,-3,-4,0,-2,-2,5,-30,10,-4,2,0],[246,514,0,-3,2,-3],[286,484,-1,-7,5,-2,1,-9,10,7,-1,7],[334,388,10,22,12,4,8,-1,2,5,6,5,2,5,-1,11,-3,4,2,5,-12,6,-3,7,-6,1,-4,-5,-7,-3,-10,7,-5,12,-8,5,-7,-1,0,3,-5,0,-6,6],[291,466,1,-19,20,-28,7,-15,3,-12],[167,531,6,-3,17,-8,10,30,20,7,7,-5],[122,1026,12,-3,8,7,2,13,-1,9,-4,8,7,5,-4,9,-7,2,-12,-1,-7,-17,-6,4,-1,-10,-4,-9],[62,1021,-4,-3,-1,-6,5,-1,4,-8,-1,-2],[99,986,11,4,9,6,9,-4,5,0,5,-1,8,-7,5,-2,2,3,9,4,6,-4,8,-6,8,-5,2,4,11,5,1,7,4,5,2,6,-3,4,-6,1,0,7,-11,-3,-9,1,6,10,-2,3,1,6,3,2,-1,8,-8,7,-10,1,-8,8,-9,-1,-4,-3],[204,1001,4,2,6,9,-2,1,0,5,11,-1,2,5,-8,6,-9,4,0,12,-9,4,-3,-6,-3,-3,-6,12,-12,8,-9,7,-7,7,-7,3,-10,-2],[207,924,8,-1,-2,4,7,0,3,5,4,-1,3,2,11,0,-2,8,8,5,5,0,8,6,6,-1,7,13,-2,7,6,0,2,3,4,-1,0,6,-6,3,-2,5,-8,0,-8,0,-8,-10,-12,-1,2,11,-10,2,-2,6,-8,-3,-4,8,-1,4,2,7,-4,1],[225,1022,2,5,0,8,1,10,6,8,-4,5,-2,9,-6,-1,-4,4,-2,10],[386,1284,-2,-2,-1,-4,0,-7,-5,-4,0,-5,-1,0],[399,1243,7,8,5,11,7,7,-3,4,0,9,5,-1,4,15,6,4,-6,6],[499,1167,-8,-5,-10,-7,-4,2,2,6,-2,10,4,8,-4,8,-7,9,-3,-1,1,-8,-1,-15,-3,-7,-7,-7,-4,-15,-5,-10,2,-11,1,-5,-6,-6,-4,4,-4,1,-3,-7,-5,-7,-4,-12,0,-15,-4,-16,-5,-11,3,-5,0,-12,6,-15,2,-10,-2,-13,2,-20,0,-12,6,-5,9,-5,2,-6,6,-12,1,-14,2,-12,4,-3,12,4,8,-7,4,-14,5,-9,7,-2],[220,927,16,-6,0,-2,-6,-2,5,-5,6,3,0,4,9,5,1,-6,0,-9,2,-10,7,-1,0,-4,4,-8,-6,-4,-6,7,-3,-6,-4,-2,-3,6,-6,-2,-7,4,-8,1],[237,682,7,6,0,22,8,-2,5,-5,8,-1,4,-7,11,11,-1,12,11,10,10,6,10,10,7,0,6,9,5,-8,6,-4,9,-4,4,5,-2,16,2,11,8,9,-12,11,-8,-1,-5,4,-5,0,1,-7,-11,2,-6,10,-7,14,-5,-6,-9,-4,-4,10,-5,9,-5,13,-2,14,-5,6,-1,7,-2,12,0,9,4,1,6,-2,5,1,2,6,-8,1,-2,0,-4,9,2,7,-1,8,0,8,7,1,3,-4,1,8,7,9,7,12,-3,8,5,7,-7,5,-4,-4,-1,11],[273,888,7,7,3,5,-2,7,-1,6,-2,4],[302,811,2,4,-3,8,-6,10,-2,6,-5,3,-2,8,-4,8,-2,12,-1,11],[251,615,11,4,6,14,4,-1,2,-4,9,-1,4,-9,6,-4,5,-5,-5,16,2,10,-2,6,3,2,-1,7,4,13,8,1,6,5,0,8,3,1,1,8,-1,3,3,4,6,0,6,4,3,6,6,-4,0,10,3,3,4,-1,5,5,5,-1,4,-2,4,5,2,11,1,12,2,5,1,6,-4,7,-8,3,-4,16],[371,678,-1,3,3,8,-1,3,4,3,0,6,1,2,4,1,4,4,-2,5,-3,-1,-1,3,-8,-1,-4,4,2,4,1,4,5,7,-1,7,0,10,-3,2],[298,609,9,9,7,-1,1,-8,7,0,8,-4,5,5,2,-5,7,3,12,4,-3,10,1,8,5,2,1,8,3,5,8,2,2,9,4,1,-3,5,0,3],[402,710,-3,-4,2,-10,-6,-1,1,10,-3,13,1,19,-9,2,1,4,-2,6,-4,-1,-6,2],[424,803,-3,-2,-5,-16,-4,-3,-1,-13,-7,-4,2,-10,-2,-7,-5,-10,-2,2,-3,-3],[356,612,9,-1,0,-7,9,-12,1,-8,5,-11,1,-7,-2,-4,1,-7,-6,-7,-2,-9],[372,448,8,-6,3,2,11,-3,3,7,-4,2,-4,5,-2,6,1,4,7,12,1,4,-3,3,-5,-4,-5,6,0,3],[358,361,2,3,3,3,5,0,-2,4,3,11,-2,5,0,8,4,12,0,5,1,11],[387,461,6,-4,2,0,0,-4,2,-3,0,-2,3,-4,3,-7,4,1,4,-2,1,14,-2,2,-2,4,-2,-2,-4,5,-3,-3,-3,4,-1,5,-7,0],[691,206,-5,14,-7,15,-15,1,-4,3],[521,318,-1,-9,-2,-3,-5,0,1,-4,0,-9,2,-3,-2,-4,2,-4,0,-7,2,-12,1,-10,0,-7,-3,-6,0,-5,4,0,5,-3,2,6,4,0,4,-3,4,0,0,9,4,11,5,3,4,8,4,-1,2,6,4,11],[453,296,2,-4,-2,-5,2,-5,1,3,3,2,4,2,1,0,1,2,-1,1,-1,6,1,2,1,-2,2,1,2,-3,4,-2,2,-3,3,0,3,-4,1,-4,3,-8,-1,-6,-2,-3,0,-4,-2,-3,-1,-7,-2,-3,3,-5,0,-6,1,-7,-2,-4,3,-1,2,-5,4,2,3,3,-1,2,5,-3,8,9,1,5,3,1,9,-5],[491,226,4,-10,-2,-7,1,-5,-2,-6,4,-5,-2,-4,1,0,5,-5,0,-8,4,0,1,-7,-3,-2,2,-5,3,0,1,-7,3,-5,6,-4,4,1,5,-3,4,-3,2,3,6,-3],[543,227,-1,5,-3,3],[479,227,-2,-6,-7,-5,-7,-6,-2,-8,1,-6,-3,-8,-1,-3,2,-9,4,-7,1,-3,3,-2,1,-2],[481,170,-4,-1,0,-6,-2,2,-6,-3,-2,-2,0,-9,-3,-5,1,-8,3,-14,3,-2,-2,-10,-1,-1,1,-7,0,-5,2,-4,2,1,2,0,1,3,-3,5,3,1,-1,9,2,7,0,5,-2,3,1,1,7,-1,1,3,5,4,-3,7,4,6,0,4,-3,7,1,5,-2,5,-1,-1,-4,1,-2,5,-1,4,1,8,2,1,0,4,2,5,-1,1,1,4,3,3,0,3,-3,11,1,2],[455,282,4,-1,5,1,4,-1,6,-5,4,-4,3,-3,1,-3],[437,286,1,-6,4,-8,-3,-11,-2,-5,0,-15,2,-8,-1,-4,4,-2,2,-2,2,2,1,-2,-2,-4,3,-5,4,-1,2,-6,3,-1,4,-6],[560,211,3,11,0,17,1,10,-2,1,-1,5,-5,10],[578,243,2,9,-2,4,-3,9,0,8],[511,150,-1,-4,1,-3,-2,-2,-2,-8,-2,-3,-2,-8,-3,2,-5,1,-2,5,-4,6],[475,96,3,-11,-2,-2,0,-8],[495,62,4,0,2,-2,7,2,11,-2,0,6,3,2,9,3,4,-2],[550,85,-2,8,2,6],[420,280,1,-9,-3,-10,-5,0,-1,-9,4,-7,-3,-8,0,-7,7,-1,3,-5,2,1,1,-1,3,2,3,4,4,-5,4,-1,2,3],[418,261,-2,5,-7,-3,-1,-2],[396,202,5,4,3,1,2,3,2,0,1,7,3,4,-1,5,2,2,0,2],[415,416,1,10,-5,10],[419,194,3,-1,5,4,-2,1,1,3,-3,2,-1,2,-3,1,-4,-1,-4,1,-3,4],[459,188,-4,3,-3,3,-3,-4,2,-4,0,-7,1,-9,0,-5,-2,-2,2,-3,-4,-3,-4,5,-4,3,-3,4,-3,4,-4,4,-4,9,-1,-2],[455,137,0,7,1,2,-1,3,0,4,2,0,1,4,4,1,3,8],[469,104,-4,0,-2,-5,1,-7,-4,-2,0,-5,2,-2,-4,-5,0,-5,2,-5],[495,57,6,1,0,2],[513,33,0,7,2,10,-5,6,-2,6],[419,-90,2,3,2,4,-5,3,0,6,1,1,0,6,-5,3,-3,-5,-8,0,-1,-1,-5,-1,-1,-4,-6,4,-6,-3,-3,4,-3,-2,-4,-3,-3,0],[551,-76,-5,2,-5,-2,0,6,-2,8],[465,138,-5,-1,-4,2],[412,450,2,2,-3,8,0,5,1,1,5,-5,2,3],[45,1142,-5,5,3,2,0,4,7,1,4,1],[486,170,2,1,0,4,1,4,1,0,0,2,3,1,0,2,2,2,0,3],[127,431,-2,-3,0,-4,4,-4,6,-4,3,-4,3,-3,4,-9,0,-7,2,-2,-2,-6,5,-6,-8,-3,2,-12],[163,428,4,4,4,-1,5,3,-3,4,1,3,0,11,-1,2,-1,10,1,3,-4,3,2,5,11,7,4,9,4,29],[351,340,0,-1,-1,-2,0,-2,0,0,1,0,1,-1,0,-2,-1,-3,0,-2],[220,250,37,0,35,0,8,-3,7,3,4,-2,5,4],[55,353,11,-6,2,-5,4,-1,5,-5,1,-6,6,3,0,5,3,2],[125,424,-4,-4,-5,-3,-2,0,-3,1,-1,5,1,3,-2,2,-3,-2,-6,3,-5,4,-3,4,-12,32,0,9],[115,431,-6,-3],[-11,304,-3,-6,1,-2],[35,308,3,4,-2,7,2,8,0,7,5,6],[449,190,0,4,-5,-3,-4,5,-4,-1,-1,-3,-1,-2,-2,-3,-6,-1],[419,206,-1,1,3,1,1,6,0,2,1,3,0,5],[422,216,1,-1,1,2,3,1,0,-2,2,-2,0,-1,2,-2,0,-1,2,-2,-1,-2,-3,-1,-1,-2,1,0,2,-3,1,-4,2,-1,1,-3],[428,203,-2,-2]]};
+  let worldRings = null, worldLines = null;
+  function decodeWorld(){
+    if (worldRings) return;
+    const k = WORLD.s, dec = (a) => { const out = []; let la = 0, lo = 0; for (let i = 0; i < a.length; i += 2){ la += a[i]; lo += a[i + 1]; out.push([la / k, lo / k]); } return out; };
+    worldRings = WORLD.land.map(poly => poly.map(dec));
+    worldLines = WORLD.borders.map(dec);
+  }
+  function mapColors(){
+    const dark = mapTheme() === 'dark', cs = getComputedStyle(document.documentElement);
+    const ink = cs.getPropertyValue('--ink').trim() || '#e5eae2';
+    return dark ? { sea: '#0b1220', land: '#26303a', coast: '#4a5866', border: '#3a4753', ink }
+                : { sea: '#cfe1ee', land: '#f1ede4', coast: '#8a97a3', border: '#b9bfc4', ink };
+  }
+  function addWorld(map){
+    decodeWorld();
+    const L = window.L, c = mapColors(), land = [], lines = [];
+    map.getContainer().style.background = c.sea;
+    for (const off of [-360, 0, 360]){
+      const sh = (pt) => [pt[0], pt[1] + off];
+      land.push(L.polygon(worldRings.map(poly => poly.map(r => r.map(sh))), { stroke: true, color: c.coast, weight: .8, fillColor: c.land, fillOpacity: 1, interactive: false, smoothFactor: 1.2 }).addTo(map));
+      lines.push(L.polyline(worldLines.map(l => l.map(sh)), { color: c.border, weight: .7, interactive: false, smoothFactor: 1.2 }).addTo(map));
+    }
+    return { land, lines };
+  }
+  function restyleWorld(m){
+    const c = mapColors();
+    m.map.getContainer().style.background = c.sea;
+    m.world.land.forEach(l => l.setStyle({ color: c.coast, fillColor: c.land }));
+    m.world.lines.forEach(l => l.setStyle({ color: c.border }));
+  }
+  function gcPoints(a, b, n){
+    const r = Math.PI / 180, la1 = a[0] * r, lo1 = a[1] * r, la2 = b[0] * r, lo2 = b[1] * r;
+    const d = 2 * Math.asin(Math.sqrt(Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2));
+    if (!(d > 1e-6) || d > 3.1) return [a, b];
+    const pts = [];
+    for (let i = 0; i <= n; i++){
+      const f = i / n, A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2);
+      const y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2);
+      const z = A * Math.sin(la1) + B * Math.sin(la2);
+      pts.push([Math.atan2(z, Math.hypot(x, y)) / r, Math.atan2(y, x) / r]);
+    }
+    for (let i = 1; i < pts.length; i++){
+      while (pts[i][1] - pts[i - 1][1] > 180) pts[i][1] -= 360;
+      while (pts[i][1] - pts[i - 1][1] < -180) pts[i][1] += 360;
+    }
+    return pts;
+  }
+  function createMap(ph){
+    const L = window.L, key = ph.dataset.map;
+    let pt = [parseFloat(ph.dataset.lat), parseFloat(ph.dataset.lon)];
+    const approx = ph.dataset.approx === '1', call = ph.dataset.call || '', kind = ph.dataset.kind;
+    const cs = getComputedStyle(document.documentElement);
+    const accent = cs.getPropertyValue('--accent').trim() || '#f0a43a', ink = cs.getPropertyValue('--ink').trim() || '#e5eae2';
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    ph.textContent = '';
+    const map = L.map(ph, { scrollWheelZoom: false, dragging: !L.Browser.mobile, tap: false, minZoom: 2, maxZoom: 7, zoomAnimation: !rm, fadeAnimation: !rm, markerZoomAnimation: !rm });
+    const theme = mapTheme();
+    const world = addWorld(map);
+    const here = gridToLL(state.home);
+    let line = null;
+    if (here){
+      const pts = gcPoints(here, pt, 64);
+      pt = pts[pts.length - 1];
+      line = L.polyline(pts, { color: ink, weight: 1.5, opacity: .55, dashArray: '4 6', interactive: false }).addTo(map);
+      L.circleMarker(here, { radius: 5, color: ink, weight: 2, fillColor: ink, fillOpacity: .25 }).bindTooltip('QTH ' + state.home, { direction: 'top' }).addTo(map);
+    }
+    L.circleMarker(pt, { radius: 8, color: kind === 'de' ? ink : '#ffffff', weight: 2, fillColor: kind === 'de' ? ink : accent, fillOpacity: kind === 'de' ? .35 : 1 })
+      .bindTooltip(call, { permanent: true, direction: 'top', offset: [0, -6] }).addTo(map);
+    map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+    map.setView(pt, approx ? 4 : 6);
+    map.on('focus', () => map.scrollWheelZoom.enable()); map.on('blur', () => map.scrollWheelZoom.disable());
+    maps.set(key, { map, el: ph, world, theme, pt, here });
+    setTimeout(() => map.invalidateSize(), 0);
+  }
+  function mountMaps(){
+    const wanted = new Set(), need = [];
+    document.querySelectorAll('#rows .map[data-map]').forEach(ph => {
+      const key = ph.dataset.map; wanted.add(key);
+      const cur = maps.get(key);
+      if (cur){ if (cur.el !== ph){ ph.replaceWith(cur.el); cur.map.invalidateSize({ animate: false }); } }
+      else need.push(ph);
+    });
+    maps.forEach((m, key) => { if (!wanted.has(key)){ try { m.map.remove(); } catch {} maps.delete(key); } });
+    if (!need.length) return;
+    if (window.L){ need.forEach(createMap); return; }
+    loadLeaflet().then(ok => {
+      if (ok) mountMaps();
+      else document.querySelectorAll('#rows .map[data-map]:not(.leaflet-container)').forEach(ph => { ph.textContent = 'Karte nicht verfügbar. Ohne Internetverbindung lädt sie nicht, nutze den Link zu OpenStreetMap.'; });
+    });
+  }
+  function fitMap(key){
+    const m = maps.get(key); if (!m || !m.here) return;
+    m.map.fitBounds([m.here, m.pt], { padding: [40, 40], maxZoom: 6 });
+  }
+  function refreshMapTheme(){
+    const theme = mapTheme();
+    maps.forEach(m => { if (m.theme !== theme){ restyleWorld(m); m.theme = theme; } });
+  }
+  function resetMaps(){ maps.forEach(m => { try { m.map.remove(); } catch {} }); maps.clear(); }
+
+  /* ---------- Logbuch (ADIF) ---------- */
+  const GRP = { CW: 'CW', PHONE: 'Phone', DATA: 'Digital' };
+  const SUFFIX = new Set(['P', 'M', 'MM', 'AM', 'QRP', 'A', 'B', 'LH', 'R', 'T', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+  const PHONE_MODES = new Set(['SSB', 'USB', 'LSB', 'FM', 'NFM', 'WFM', 'AM', 'PHONE', 'DIGITALVOICE', 'DSTAR', 'DMR', 'C4FM']);
+  const BAND_EDGES = [['160m', 1.8, 2.0], ['80m', 3.5, 4.0], ['60m', 5.06, 5.45], ['40m', 7.0, 7.3], ['30m', 10.1, 10.15], ['20m', 14.0, 14.35], ['17m', 18.068, 18.168], ['15m', 21.0, 21.45], ['12m', 24.89, 24.99], ['10m', 28.0, 29.7], ['6m', 50, 54], ['4m', 70, 70.5], ['2m', 144, 148], ['70cm', 420, 450]];
+  function normCall(c){
+    c = String(c || '').toUpperCase().trim();
+    if (c.indexOf('/') < 0) return c;
+    const keep = c.split('/').filter(p => p && !SUFFIX.has(p));
+    return keep.length === 1 ? keep[0] : c;
+  }
+  const modeGroup = (m) => { m = String(m || '').toUpperCase(); return m === 'CW' ? 'CW' : PHONE_MODES.has(m) ? 'PHONE' : 'DATA'; };
+  function bandOf(mhz){ const f = parseFloat(mhz); if (!(f > 0)) return ''; const b = BAND_EDGES.find(e => f >= e[1] && f <= e[2]); return b ? b[0] : ''; }
+  function decodeBytes(buf){
+    try { return new TextDecoder('iso-8859-1').decode(buf); } catch { return new TextDecoder().decode(buf); }
+  }
+  function parseAdif(text){
+    const recs = []; let cur = {}, i = 0;
+    while (i < text.length){
+      const lt = text.indexOf('<', i); if (lt < 0) break;
+      const gt = text.indexOf('>', lt); if (gt < 0) break;
+      const parts = text.slice(lt + 1, gt).split(':'), name = parts[0].toUpperCase();
+      i = gt + 1;
+      if (name === 'EOH'){ cur = {}; continue; }
+      if (name === 'EOR'){ if (cur.CALL) recs.push(cur); cur = {}; continue; }
+      const len = parseInt(parts[1], 10);
+      if (!(len >= 0)) continue;
+      cur[name] = text.substr(i, len); i += len;
+    }
+    return recs;
+  }
+  function buildIdx(recs, src, t){
+    const calls = new Map(), dxcc = new Map();
+    for (const r of recs){
+      const band = r.BAND ? r.BAND.toLowerCase() : bandOf(r.FREQ);
+      const key = band + '|' + modeGroup(r.MODE), c = normCall(r.CALL);
+      if (!c) continue;
+      if (!calls.has(c)) calls.set(c, new Set());
+      calls.get(c).add(key);
+      const dx = parseInt(r.DXCC, 10);
+      if (dx > 0){ if (!dxcc.has(dx)) dxcc.set(dx, new Set()); dxcc.get(dx).add(band); }
+    }
+    return { calls, dxcc, n: recs.length, t: t || Date.now(), src };
+  }
+  function saveIdx(){
+    try {
+      if (!logIdx){ localStorage.removeItem('dxm.logdata'); return true; }
+      const c = {}; logIdx.calls.forEach((set, k) => { c[k] = [...set]; });
+      const x = {}; logIdx.dxcc.forEach((set, k) => { x[k] = [...set]; });
+      localStorage.setItem('dxm.logdata', JSON.stringify({ n: logIdx.n, t: logIdx.t, src: logIdx.src, c, x }));
+      return true;
+    } catch { return false; }
+  }
+  function loadIdx(){
+    try {
+      const d = JSON.parse(localStorage.getItem('dxm.logdata') || 'null');
+      if (!d || !d.c) return;
+      const calls = new Map(); Object.keys(d.c).forEach(k => calls.set(k, new Set(d.c[k])));
+      const dxcc = new Map(); Object.keys(d.x || {}).forEach(k => dxcc.set(Number(k), new Set(d.x[k])));
+      logIdx = { calls, dxcc, n: d.n, t: d.t, src: d.src };
+    } catch {}
+  }
+  function logStatus(s){
+    if (!logIdx) return null;
+    const set = logIdx.calls.get(normCall(s.call));
+    if (!set) return 'new';
+    if (s.band && set.has(s.band + '|' + s.mt)) return 'ok';
+    if (s.band && !s.mt){ for (const k of set) if (k.split('|')[0] === s.band) return 'ok'; }
+    return 'part';
+  }
+  /* Land-Status aus dem Logbuch: 'newc' = Land noch nie gearbeitet, 'newb' = Land ja, aber nicht auf diesem Band, 'ok' = schon da */
+  function countryStatus(s){
+    if (!logIdx || !logIdx.dxcc || !logIdx.dxcc.size || !(Number(s.dxcc) > 0)) return null;
+    const bands = logIdx.dxcc.get(Number(s.dxcc));
+    if (!bands) return 'newc';
+    if (s.band && !bands.has(s.band)) return 'newb';
+    return 'ok';
+  }
+  function countryBadge(s){
+    const c = countryStatus(s);
+    if (c === 'newc') return '<span class="nb nb-c" title="Dieses DXCC-Land ist noch nicht in deinem Logbuch">NEUES LAND</span>';
+    if (c === 'newb') return '<span class="nb nb-b" title="Land schon gearbeitet, aber noch nicht auf ' + esc(s.band) + '">NEU ' + esc(s.band) + '</span>';
+    return '';
+  }
+  function logLabel(s, st){
+    const bm = ((s.band || '?') + ' ' + (GRP[s.mt] || '')).trim();
+    if (st === 'new') return 'Noch nicht im Logbuch';
+    if (st === 'ok') return 'Schon gearbeitet auf ' + bm;
+    const order = (k) => { const [b, g] = k.split('|'); const i = BAND_ORDER.indexOf(b); return (i < 0 ? 99 : i) * 10 + ['CW', 'PHONE', 'DATA'].indexOf(g); };
+    const all = [...logIdx.calls.get(normCall(s.call))].sort((a, b) => order(a) - order(b)).map(k => { const [b, g] = k.split('|'); return (b || '?') + ' ' + (GRP[g] || g); });
+    return 'Station im Logbuch, aber nicht auf ' + bm + ' (gearbeitet: ' + all.slice(0, 8).join(', ') + (all.length > 8 ? ' …' : '') + ')';
+  }
+  function logStatusText(){
+    const el = $('#logStatus'); if (!el) return;
+    let t = logIdx ? logIdx.n.toLocaleString('de-AT') + ' QSOs mit ' + logIdx.calls.size.toLocaleString('de-AT') + ' Stationen, geladen am ' + new Date(logIdx.t).toLocaleString('de-AT') + ' (' + logIdx.src + ').' : 'Noch kein Logbuch geladen.';
+    if (logIdx){
+      if (logIdx.dxcc && logIdx.dxcc.size){
+        const withId = spots.filter(x => Number(x.dxcc) > 0).length;
+        t += ' Länder: ' + logIdx.dxcc.size + ' (DXCC). Spots mit Landnummer: ' + withId + ' von ' + spots.length + '.';
+      } else t += ' Das Logbuch enthält keine DXCC-Nummern, die Anzeige „Neues Land“ ist daher aus. Exportiere das ADIF neu aus QRZ und lade es noch einmal.';
+    }
+    if (logErr) t += ' ' + logErr;
+    el.textContent = t;
+  }
+  function setLog(recs, src){
+    if (!recs.length){ logErr = 'Keine QSOs gefunden. Ist das eine ADIF-Datei (.adi)?'; logStatusText(); return false; }
+    logIdx = buildIdx(recs, src); logErr = saveIdx() ? '' : 'Konnte nicht dauerhaft gespeichert werden (Browser blockiert den Speicher). Das Logbuch gilt nur, bis du die Seite schließt.'; logStatusText(); render(); return true;
+  }
+  async function fetchLogUrl(){
+    const url = (state.logurl || '').trim(); if (!url) return;
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      setLog(parseAdif(decodeBytes(await r.arrayBuffer())), 'Adresse');
+    } catch (e) {
+      logErr = 'Adresse „' + url + '“ konnte nicht geladen werden (' + (e.message || 'Fehler') + '). Öffnest du die Seite direkt als Datei, geht das nicht, dann nimm den Knopf „ADIF-Datei laden“.';
+      logStatusText();
+    }
+  }
+
+  async function qrzSync(){
+    const btn = $('#qrzSync'), el = $('#logStatus');
+    if (location.protocol === 'file:'){ logErr = 'Aktualisieren von QRZ braucht den Servermodus: qrz-sync.py --serve starten und die Seite über http://localhost:8000/dx-monitor.html öffnen. Oder ADIF-Datei laden.'; logStatusText(); return; }
+    btn.disabled = true; const old = btn.textContent; btn.textContent = 'Lade von QRZ …';
+    try {
+      let r = null, j = null;
+      try { r = await fetch('qrz-sync', { method: 'POST', cache: 'no-store' }); j = await r.json().catch(() => null); } catch {}
+      if (r && j && j.ok){
+        if (!state.logurl){ state.logurl = 'qrz.adi'; $('#logurl').value = state.logurl; persist(); }
+        logErr = ''; await fetchLogUrl();
+      } else if (r && j && j.error){
+        logErr = 'QRZ: ' + j.error; logStatusText();
+      } else if (state.logurl){
+        await fetchLogUrl(); if (!logErr) logErr = 'Hinweis: Kein QRZ-Servermodus gefunden, die Datei „' + state.logurl + '“ wurde neu geladen.'; logStatusText();
+      } else {
+        logErr = 'Kein QRZ-Servermodus gefunden. Starte qrz-sync.py --serve oder lade eine ADIF-Datei.'; logStatusText();
+      }
+    } finally { btn.disabled = false; btn.textContent = old; }
+  }
+
+
+  /* ---------- Update-Hinweis für Spender ---------- */
+  const APP_VERSION = window.DXM_V;
+  $('#appver').textContent = APP_VERSION;
+  const UPDATE_URL = 'https://gist.githubusercontent.com/erwin61/52f2119e824f55052e481ab1f813a544/raw/version.json';
+  /* SHA-256 in reinem JavaScript (funktioniert auch auf http-Seiten ohne crypto.subtle) */
+  function sha256(str){
+    const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const bytes = Array.from(new TextEncoder().encode(str)), bl = bytes.length * 8;
+    bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+    for (let i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (bl >>> (i * 8)) & 255);
+    const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19], w = new Array(64);
+    const rr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let o = 0; o < bytes.length; o += 64){
+      for (let i = 0; i < 16; i++) w[i] = (bytes[o + 4 * i] << 24) | (bytes[o + 4 * i + 1] << 16) | (bytes[o + 4 * i + 2] << 8) | bytes[o + 4 * i + 3];
+      for (let i = 16; i < 64; i++){ const s0 = rr(w[i - 15], 7) ^ rr(w[i - 15], 18) ^ (w[i - 15] >>> 3), s1 = rr(w[i - 2], 17) ^ rr(w[i - 2], 19) ^ (w[i - 2] >>> 10); w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0; }
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let i = 0; i < 64; i++){
+        const t1 = (h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0, t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0; H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+  }
+  const normCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const verNum = (v) => String(v || '').split('.').map(x => parseInt(x, 10) || 0);
+  const isNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < Math.max(x.length, y.length); i++){ const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; } return false; };
+  let updMsg = '';
+  function updStatusText(){ const el = $('#updStatus'); if (el) el.textContent = updMsg || ('Version ' + APP_VERSION + '. Den Code bekommst du von OE3KAI nach einer Spende. Mit #reset am Ende der Adresse startet wieder die Datei selbst.'); }
+  /* Lädt die neue Programmdatei (liegt im selben Gist wie version.json) und legt sie im Browser ab. */
+  async function installApp(version, manual){
+    if (manual){ try { localStorage.removeItem('dxm.noauto'); } catch {} }
+    else { try { if (localStorage.getItem('dxm.noauto')) throw new Error('automatisches Laden pausiert, „Jetzt nach Update suchen“ drücken'); } catch (e){ if (e.message.indexOf('pausiert') >= 0) throw e; } }
+    try { const o = JSON.parse(localStorage.getItem('dxm.app') || 'null'); if (o && o.v === version) return true; } catch {}
+    const url = UPDATE_URL.replace(/version\.json(\?.*)?$/, 'dx-monitor.html');
+    if (url === UPDATE_URL) throw new Error('keine Programm-Adresse');
+    const r = await fetch(url + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const html = await r.text();
+    if (html.length > 3000000 || !/<title>OE3KAI DX Monitor<\/title>/.test(html) || html.indexOf("window.DXM_V = '" + version + "'") < 0) throw new Error('Datei passt noch nicht zur Version, später erneut versuchen');
+    localStorage.setItem('dxm.app', JSON.stringify({ v: version, html }));
+    return true;
+  }
+  async function checkUpdate(manual){
+    const code = normCode(state.donor), call = normCall(state.donorCall), box = $('#upd');
+    box.hidden = true;
+    if (!code || !call){ updMsg = manual ? 'Bitte Rufzeichen und Spender-Code eintragen.' : ''; updStatusText(); return; }
+    try {
+      const r = await fetch(UPDATE_URL + (UPDATE_URL.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      const ok = Array.isArray(j.codes) && j.codes.includes(sha256(call + '|' + code));
+      if (!ok){ updMsg = 'Rufzeichen und Spender-Code passen nicht zusammen. Bitte prüfe beide Eingaben oder frag bei OE3KAI nach. (Gelesen: Version ' + (j.version || '?') + ', ' + (Array.isArray(j.codes) ? j.codes.length : 0) + ' Code(s), Stand ' + new Date().toLocaleTimeString('de-AT') + ')'; updStatusText(); return; }
+      if (j.version && isNewer(j.version, APP_VERSION)){
+        let installed = false, failMsg = '';
+        try { installed = await installApp(j.version, manual); } catch (e){ failMsg = e.message || 'Fehler'; }
+        updMsg = 'Spender-Code gültig. Neue Version ' + j.version + ' ' + (installed ? 'wurde geladen und startet nach dem Neuladen.' : 'verfügbar' + (failMsg ? ' (automatisch laden nicht möglich: ' + failMsg + ')' : '') + '.') + ' Du hast ' + APP_VERSION + '.';
+        let dismissed = ''; try { dismissed = store.get('updDismissed', ''); } catch {}
+        if (manual || dismissed !== j.version){
+          box.textContent = '';
+          const t = document.createElement('span'); t.textContent = 'Neue Version ' + j.version + ' vom DX Monitor' + (j.notes ? ': ' + j.notes : '') + '. ';
+          box.appendChild(t);
+          if (installed){
+            const g = document.createElement('button'); g.type = 'button'; g.className = 'btn'; g.textContent = 'Jetzt neu laden'; g.addEventListener('click', () => location.reload());
+            g.style.marginLeft = '0'; box.appendChild(g);
+          } else if (/^https:\/\//.test(j.url || '')){ const a = document.createElement('a'); a.href = j.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Herunterladen'; box.appendChild(a); }
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = 'Später'; b.addEventListener('click', () => { box.hidden = true; try { store.set('updDismissed', j.version); } catch {} });
+          box.appendChild(b); box.hidden = false;
+        }
+      } else updMsg = 'Spender-Code gültig. Du hast die neueste Version (' + APP_VERSION + '). Danke für den Kaffee!';
+    } catch (e){
+      updMsg = manual ? 'Update-Prüfung nicht möglich (' + (e.message || 'Fehler') + '). Bist du online?' : '';
+    }
+    updStatusText();
+  }
+
+  /* ---------- Hintergrundfarbe ---------- */
+  const BG_PRESETS = [['auto', 'Automatisch'], ['#eceee9', 'Hell'], ['#efe6d4', 'Sand'], ['#2a2d2f', 'Grau'], ['#0f1722', 'Nachtblau'], ['#111713', 'Dunkelgrün'], ['#000000', 'Schwarz']];
+  const LOG_KEYS = ['--log-ok', '--log-part', '--log-new'];
+  const BG_KEYS = ['--bg', '--surface', '--ink', '--muted', '--line', '--chip', '--fresh', '--accent', '--accent-ink'];
+  const hexRgb = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const css = (c) => 'rgb(' + c.join(',') + ')';
+  function applyBg(sel){
+    const root = document.documentElement, meta = document.querySelector('meta[name="theme-color"]');
+    if (!/^#[0-9a-f]{6}$/i.test(sel)){
+      BG_KEYS.concat(LOG_KEYS).forEach(k => root.style.removeProperty(k)); root.style.removeProperty('color-scheme');
+      if (meta) meta.setAttribute('content', matchMedia('(prefers-color-scheme: dark)').matches ? '#111713' : '#eceee9');
+      return;
+    }
+    const bg = hexRgb(sel), W = [255, 255, 255], B = [0, 0, 0];
+    const dark = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255 < 0.5;
+    const t = dark
+      ? { surface: mix(bg, W, .06), ink: [232, 236, 230], muted: mix(bg, W, .6), line: mix(bg, W, .16), chip: mix(bg, W, .1), fresh: [74, 58, 22], accent: [240, 164, 58], aink: [26, 18, 6] }
+      : { surface: mix(bg, W, .55), ink: [27, 35, 30], muted: mix(bg, B, .62), line: mix(bg, B, .13), chip: mix(bg, B, .07), fresh: [246, 223, 182], accent: [166, 75, 8], aink: [255, 255, 255] };
+    const vals = [bg, t.surface, t.ink, t.muted, t.line, t.chip, t.fresh, t.accent, t.aink];
+    BG_KEYS.forEach((k, i) => root.style.setProperty(k, css(vals[i])));
+    const lg = dark ? ['#5fd07a', '#6aaaf5', '#f2766c'] : ['#1f7a35', '#1f67b8', '#c2271d'];
+    LOG_KEYS.forEach((k, i) => root.style.setProperty(k, lg[i]));
+    root.style.setProperty('color-scheme', dark ? 'dark' : 'light');
+    if (meta) meta.setAttribute('content', sel);
+  }
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const lumOf = (c) => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+  const COLOR_SETS = [
+    { k: 'bg', label: 'Hintergrund', fallback: '#111713', presets: BG_PRESETS },
+    { k: 'accent', label: 'Akzentfarbe', fallback: '#f0a43a', presets: [['auto', 'Automatisch'], ['#e8962e', 'Amber'], ['#3fae5a', 'Grün'], ['#2aa8c4', 'Türkis'], ['#4a86e8', 'Blau'], ['#e0533d', 'Rot'], ['#a56be0', 'Violett']] },
+    { k: 'ink', label: 'Schriftfarbe', fallback: '#e5eae2', presets: [['auto', 'Automatisch'], ['#ffffff', 'Weiß'], ['#d8dcd6', 'Hellgrau'], ['#f3e6c8', 'Warmweiß'], ['#2b2f2c', 'Dunkelgrau'], ['#000000', 'Schwarz']] }
+  ];
+  function applyOverrides(){
+    const root = document.documentElement;
+    if (HEX.test(state.accent)){
+      const a = hexRgb(state.accent);
+      root.style.setProperty('--accent', css(a));
+      root.style.setProperty('--accent-ink', lumOf(a) > 0.55 ? 'rgb(26,18,6)' : 'rgb(255,255,255)');
+    }
+    if (HEX.test(state.ink)){
+      const i = hexRgb(state.ink);
+      const m = (getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [17, 23, 19]).slice(0, 3).map(Number);
+      root.style.setProperty('--ink', css(i));
+      root.style.setProperty('--muted', css(mix(i, m, .42)));
+    }
+  }
+  function applyColors(){ applyBg(state.bg); applyOverrides(); try { refreshMapTheme(); } catch {} }
+  function renderSwatches(){
+    $('#colorRows').innerHTML = COLOR_SETS.map(set =>
+      '<div class="group"><span class="cap">' + set.label + '</span><span class="group">'
+      + set.presets.map(([v, l]) => '<button type="button" class="sw' + (v === 'auto' ? ' auto' : '') + '" data-k="' + set.k + '" data-bg="' + v + '" title="' + l + '" aria-label="' + set.label + ' ' + l + '" aria-pressed="' + (state[set.k] === v) + '"' + (v === 'auto' ? '' : ' style="--c:' + v + '"') + '></button>').join('')
+      + '</span><input type="color" id="custom-' + set.k + '" data-k="' + set.k + '" aria-label="' + set.label + ' eigene Farbe" title="Eigene Farbe" value="' + (HEX.test(state[set.k]) ? state[set.k] : set.fallback) + '"></div>').join('');
+  }
+  function setColor(k, v){ state[k] = v; applyColors(); if (!(document.activeElement && document.activeElement.type === 'color')) renderSwatches(); persist(); }
+
+  /* ---------- Bedienung ---------- */
+  const persist = () => { store.set('bg', state.bg); store.set('accent', state.accent); store.set('ink', state.ink); store.set('bands', [...state.bands]); store.set('modes', [...state.modes]); store.set('sources', [...state.sources]); store.set('cont', state.cont); store.set('heard', state.heard); store.set('age', state.age); store.set('home', state.home); store.set('auto', state.auto); store.set('hideWorked', state.hideWorked); store.set('logurl', state.logurl); store.set('newc', state.newc); };
+  function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 1600); }
+  async function copy(text){
+    try { await navigator.clipboard.writeText(text); toast(text + ' kHz kopiert'); }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(text + ' kHz kopiert'); } catch { toast('Kopieren nicht möglich'); }
+      ta.remove();
+    }
+  }
+  function toggle(id, side){
+    const set = open.get(id) || new Set();
+    set.has(side) ? set.delete(side) : set.add(side);
+    set.size ? open.set(id, set) : open.delete(id);
+    render();
+  }
+  document.addEventListener('click', (e) => {
+    const sw = e.target.closest('.sw');
+    if (sw){ setColor(sw.dataset.k, sw.dataset.bg); return; }
+    const c = e.target.closest('.chip');
+    if (c){ const set = state[c.dataset.kind]; const v = c.dataset.v; set.has(v) ? set.delete(v) : set.add(v); persist(); render(); return; }
+    const fb = e.target.closest('[data-mapfit]');
+    if (fb){ fitMap(fb.dataset.mapfit); return; }
+    const cp = e.target.closest('[data-copy]');
+    if (cp){ copy(cp.dataset.copy); return; }
+    if (e.target.closest('.x')) return;
+    const row = e.target.closest('.spot');
+    if (row){ const cell = e.target.closest('[data-side]'); toggle(row.dataset.id, cell ? cell.dataset.side : 'dx'); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const t = e.target;
+    if (t.classList && t.classList.contains('spot')){ e.preventDefault(); toggle(t.dataset.id, 'dx'); const again = document.querySelector('.spot[data-id="' + CSS.escape(t.dataset.id) + '"]'); if (again) again.focus(); }
+    else if (t.classList && t.classList.contains('e')){ e.preventDefault(); const row = t.closest('.spot'); const id = row.dataset.id; toggle(id, 'de'); const again = document.querySelector('.spot[data-id="' + CSS.escape(id) + '"] .e'); if (again) again.focus(); }
+  });
+  $('#cont').addEventListener('change', e => { state.cont = e.target.value; persist(); render(); });
+  $('#heard').addEventListener('change', e => { state.heard = e.target.value; persist(); render(); });
+  $('#newc').addEventListener('change', e => { state.newc = e.target.value; persist(); render(); });
+  $('#age').addEventListener('change', e => { state.age = Number(e.target.value); persist(); render(); });
+  $('#q').addEventListener('input', e => { state.q = e.target.value; store.set('q', state.q); render(); });
+  $('#home').addEventListener('input', e => { state.home = e.target.value.toUpperCase(); if (gridToLL(state.home) || !state.home){ persist(); resetMaps(); render(); } });
+  $('#auto').addEventListener('change', e => { state.auto = e.target.checked; persist(); });
+  $('#reload').addEventListener('click', load);
+  $('#reset').addEventListener('click', () => {
+    state.bands.clear(); state.modes.clear(); state.sources.clear(); state.cont = ''; state.heard = ''; state.q = ''; state.newc = '';
+    $('#newc').value = ''; $('#cont').value = ''; $('#heard').value = ''; $('#q').value = ''; persist(); render();
+  });
+
+  $('#colorRows').addEventListener('input', e => { if (e.target.type === 'color') setColor(e.target.dataset.k, e.target.value); });
+  $('#colorRows').addEventListener('change', e => { if (e.target.type === 'color') renderSwatches(); });
+  $('#adifBtn').addEventListener('click', () => $('#adifFile').click());
+  $('#adifFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    try { setLog(parseAdif(decodeBytes(await f.arrayBuffer())), 'Datei ' + f.name); }
+    catch (x) { logErr = 'Datei konnte nicht gelesen werden.'; logStatusText(); }
+    e.target.value = '';
+  });
+  $('#logClear').addEventListener('click', () => { logIdx = null; logErr = ''; saveIdx(); logStatusText(); render(); });
+  $('#qrzSync').addEventListener('click', qrzSync);
+  $('#donor').addEventListener('change', e => { state.donor = e.target.value.trim(); store.set('donor', state.donor); checkUpdate(true); });
+  $('#donorCall').addEventListener('change', e => { state.donorCall = e.target.value.trim(); store.set('donorcall', state.donorCall); if (state.donor) checkUpdate(true); });
+  $('#updCheck').addEventListener('click', () => checkUpdate(true));
+  $('#logurl').addEventListener('change', e => { state.logurl = e.target.value.trim(); persist(); logErr = ''; state.logurl ? fetchLogUrl() : logStatusText(); });
+  $('#hideWorked').addEventListener('change', e => { state.hideWorked = e.target.checked; persist(); render(); });
+  $('#colorReset').addEventListener('click', () => { state.bg = state.accent = state.ink = 'auto'; applyColors(); renderSwatches(); persist(); });
+  $('#settingsBtn').addEventListener('click', () => {
+    const p = $('#settings'), on = p.hidden;
+    p.hidden = !on; $('#settingsBtn').setAttribute('aria-expanded', String(on)); store.set('settingsOpen', on);
+  });
+  if (store.get('settingsOpen', false) === true){ $('#settings').hidden = false; $('#settingsBtn').setAttribute('aria-expanded', 'true'); }
+  $('#saveNote').textContent = store.persistent
+    ? 'Deine Einstellungen und Filter werden automatisch in diesem Browser gespeichert.'
+    : 'Dieser Browser erlaubt kein dauerhaftes Speichern. Die Einstellungen bleiben nur bis zum Schließen des Tabs erhalten. Öffne die Seite über einen Webserver (z. B. Home Assistant), dann werden sie dauerhaft gespeichert.';
+  state.bg = store.get('bg', 'auto'); state.accent = store.get('accent', 'auto'); state.ink = store.get('ink', 'auto');
+  applyColors(); renderSwatches();
+  $('#newc').value = state.newc; $('#cont').value = state.cont; $('#heard').value = state.heard; $('#age').value = String(state.age); $('#home').value = state.home; $('#auto').checked = state.auto; $('#q').value = state.q;
+  state.hideWorked = store.get('hideWorked', false) === true; state.logurl = String(store.get('logurl', ''));
+  $('#hideWorked').checked = state.hideWorked; $('#logurl').value = state.logurl;
+  loadIdx(); logStatusText();
+  state.donor = String(store.get('donor', '')); $('#donor').value = state.donor; state.donorCall = String(store.get('donorcall', '')); $('#donorCall').value = state.donorCall; updStatusText();
+  checkUpdate(false); setInterval(() => { if (!document.hidden) checkUpdate(false); }, 6 * 3600 * 1000);
+  if (state.logurl) fetchLogUrl();
+  setInterval(() => { if (state.logurl && !document.hidden) fetchLogUrl(); }, 600000);
+  load();
+  setInterval(() => { if (state.auto && !document.hidden) load(); }, 5000);
+  setInterval(() => { if (!document.hidden && !loading) render(); }, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && state.auto) load(); });
+})();
+</script>
+</body>
+</html>
